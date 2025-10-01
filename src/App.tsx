@@ -45,7 +45,7 @@ function App() {
             <div className="flex items-center">
               <Utensils className="h-8 w-8 text-orange-600" />
               <span className="ml-2 text-xl font-bold text-gray-900">
-                Cognifyz ML Restaurant Analysis
+                Restaurant Analysis
               </span>
             </div>
 
@@ -113,7 +113,7 @@ function App() {
       <footer className="bg-white border-t border-gray-200 mt-12">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
           <p className="text-center text-gray-600 text-sm">
-            Cognifyz ML Internship Project - Restaurant Analysis System
+            Cognifyz ML Internship Project - Restaurant Analysis and Explorer System
           </p>
         </div>
       </footer>
