@@ -1,100 +1,92 @@
+import os
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
+
 import logging
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from typing import List, Optional
-from datetime import timedelta  # ADD THIS LINE
+from datetime import timedelta
 
 from fastapi import Depends, FastAPI, HTTPException, status, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from fastapi.responses import JSONResponse  # ADD THIS LINE
+from fastapi.responses import JSONResponse
+from fastapi.middleware.gzip import GZipMiddleware  # NEW: Import GZipMiddleware
 from pydantic import BaseModel
+from sqlalchemy.orm import Session
 
-from tasks.cuisine_classification import CuisineClassifier
-from tasks.location_analysis import LocationAnalyzer
-from tasks.rating_prediction import RatingPredictor
-from tasks.recommendation_system import RestaurantRecommender
-
-# --- SECURITY IMPORTS (Updated) ---
-from auth.utils import (
+from backend.tasks.cuisine_classification import CuisineClassifier
+from backend.tasks.location_analysis import LocationAnalyzer
+from backend.tasks.rating_prediction import RatingPredictor
+from backend.tasks.recommendation_system import RestaurantRecommender
+from backend.auth.utils import (
     create_access_token,
     get_password_hash,
-    get_user_from_token,
+    get_user_by_username,
+    get_current_active_user,
+    get_current_active_admin_user,
     verify_password,
 )
-
-# --- RATE LIMITING IMPORTS (New) ---
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
-from middleware.rate_limiter import limiter
-
+from backend.middleware.rate_limiter import limiter
+from backend.database import get_db, Base, engine
+from backend.models import User as DBUser
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# --- JWT Configuration (Updated) ---
-# NOTE: The SECRET_KEY is now managed in auth/utils.py
+# --- JWT Configuration ---
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/auth/token")
 
-# --- Database Mock (Updated) ---
-# This is a temporary in-memory mock database.
-fake_db = {}
+# --- ML Model Initialization (Lazy Loading) ---
+rating_predictor = None
+cuisine_classifier = None
+restaurant_recommender = None
+location_analyzer = None
 
 
-# --- Pydantic Models (Updated for Roles) ---
-class Token(BaseModel):
-    access_token: str
-    token_type: str
+def get_rating_predictor():
+    global rating_predictor
+    if rating_predictor is None:
+        rating_predictor = RatingPredictor()
+    return rating_predictor
 
 
-class User(BaseModel):
-    username: str
-    email: Optional[str] = None
-    full_name: Optional[str] = None
-    disabled: Optional[bool] = None
-    role: str = "user"  # Default role for new users
+def get_cuisine_classifier():
+    global cuisine_classifier
+    if cuisine_classifier is None:
+        cuisine_classifier = CuisineClassifier()
+    return cuisine_classifier
 
 
-class UserInDB(User):
-    hashed_password: str
+def get_restaurant_recommender():
+    global restaurant_recommender
+    if restaurant_recommender is None:
+        restaurant_recommender = RestaurantRecommender()
+    return restaurant_recommender
 
 
-class UserRegister(BaseModel):
-    username: str
-    password: str
-    email: Optional[str] = None
+def get_location_analyzer():
+    global location_analyzer
+    if location_analyzer is None:
+        location_analyzer = LocationAnalyzer()
+    return location_analyzer
 
 
-class RatingPredictionRequest(BaseModel):
-    votes: int
-    average_cost: float
-    price_range: int
-    has_table_booking: bool
-    has_online_delivery: bool
+app = FastAPI(
+    title="Restaurant Explorer API",
+    description="API for restaurant data analysis, ML predictions, and recommendations.",
+    version="1.0.0",
+)
 
 
-class RecommendationRequest(BaseModel):
-    cuisine: Optional[str] = None
-    city: Optional[str] = None
-    price_range: Optional[int] = None
-    top_n: int = 10
-
-
-class CuisineClassificationRequest(BaseModel):
-    aggregate_rating: float
-    votes: int
-    price_range: int
-    average_cost: float
-    has_table_booking: bool
-    has_online_delivery: bool
-
-
-# --- Main App (Updated with Rate Limiting) ---
-app = FastAPI(title="Cognifyz ML Restaurant Analysis API")
-app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
-app.add_middleware(SlowAPIMiddleware)
-
+# --- MIDDLEWARE ---
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -103,75 +95,89 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-rating_predictor = RatingPredictor()
-recommender = RestaurantRecommender()
-cuisine_classifier = CuisineClassifier()
-location_analyzer = LocationAnalyzer()
+app.add_middleware(SlowAPIMiddleware)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-DATA_PATH = "data/Dataset.csv"
+# NEW: Add GZip compression middleware
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
-try:
-    recommender.load_data(DATA_PATH)
-    location_analyzer.load_data(DATA_PATH)
-    logger.info("Data loaded successfully")
-except Exception as e:
-    logger.warning(f"Could not load data: {e}")
+# --- Models ---
+class UserInDB(BaseModel):
+    username: str
+    password: str
+    disabled: Optional[bool] = None
+    role: str = "user"
 
 
-# --- Authentication Dependencies (Updated) ---
-def get_current_user(token: str = Depends(oauth2_scheme)):
-    user_data = get_user_from_token(token)
-    if user_data is None:
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+
+
+class TokenData(BaseModel):
+    username: Optional[str] = None
+
+
+class RatingPredictionRequest(BaseModel):
+    online_order: int
+    book_table: int
+    votes: int
+    location: str
+    rest_type: str
+    cuisines: str
+    cost: float
+
+
+class RecommendationRequest(BaseModel):
+    location: str
+    cuisine: str
+    count: int = 5
+
+
+# --- ASYNC EXECUTOR SETUP ---
+executor = None
+
+
+@app.on_event("startup")
+def startup_event():
+    global executor
+    executor = ThreadPoolExecutor()
+    Base.metadata.create_all(bind=engine)  # Create database tables
+    logger.info("Application started and ThreadPoolExecutor initialized.")
+
+
+@app.on_event("shutdown")
+def shutdown_event():
+    global executor
+    if executor:
+        executor.shutdown(wait=True)
+        logger.info("ThreadPoolExecutor shut down gracefully.")
+
+
+# --- ENDPOINTS ---
+@app.post("/api/auth/register", response_model=UserInDB, status_code=status.HTTP_201_CREATED)
+def register_user(user: UserInDB, db: Session = Depends(get_db)):
+    db_user = get_user_by_username(db, username=user.username)
+    if db_user:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Could not validate credentials",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    username, role = user_data
-    user = fake_db.get(username)
-    if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Could not validate credentials",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    return user
-
-
-def get_current_active_admin_user(current_user: User = Depends(get_current_user)):
-    if current_user.role != "admin":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You do not have permission to access this resource",
-        )
-    return current_user
-
-
-# --- Authentication Endpoints (Updated) ---
-@app.post("/api/auth/register", tags=["auth"])
-def register_user(user: UserRegister):
-    """Register a new user."""
-    if user.username in fake_db:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Username already registered",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Username already registered"
         )
     hashed_password = get_password_hash(user.password)
-    # Assign a default role of "user"
-    user_in_db = UserInDB(
-        username=user.username,
-        email=user.email,
-        hashed_password=hashed_password,
-        role="user",
-    )
-    fake_db[user.username] = user_in_db
-    return {"message": "User registered successfully"}
+    db_user = DBUser(username=user.username, hashed_password=hashed_password, role=user.role)
+    db.add(db_user)
+    db.commit()
+    db.refresh(db_user)
+    return db_user
 
 
-@app.post("/api/auth/token", tags=["auth"])
-def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
-    """Login and get an access token."""
-    user = fake_db.get(form_data.username)
+@app.post("/api/auth/token", response_model=Token)
+def login_for_access_token(
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    db: Session = Depends(get_db)
+):
+    user = get_user_by_username(db, username=form_data.username)
     if not user or not verify_password(form_data.password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -180,158 +186,76 @@ def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
         )
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
-        data={"sub": user.username, "role": user.role}, expires_delta=access_token_expires
+        data={"sub": user.username, "scopes": [user.role]},
+        expires_delta=access_token_expires,
     )
     return {"access_token": access_token, "token_type": "bearer"}
 
 
-# --- Endpoints (Updated) ---
-@app.get("/")
-def read_root():
-    return {
-        "message": "Cognifyz ML Restaurant Analysis API",
-        "version": "1.0.0",
-        "endpoints": {
-            "rating_prediction": "/api/predict-rating",
-            "recommendations": "/api/recommend-restaurants",
-            "cuisine_classification": "/api/classify-cuisine",
-            "location_analysis": "/api/location-analysis",
-            "authentication": "/api/auth/register",
-        },
-    }
+@app.get("/api/users/me/")
+async def read_users_me(current_user: DBUser = Depends(get_current_active_user)):
+    return current_user
 
 
+# --- ASYNC ML ENDPOINTS ---
 @app.post("/api/predict-rating")
 @limiter.limit("5/minute")
-def predict_rating(
-    request: Request,
-    rating_request: RatingPredictionRequest, 
-    current_user: User = Depends(get_current_user)
-):
-    """
-    Predict restaurant rating based on features
-    This endpoint now requires authentication.
-    """
+async def predict_rating(request: RatingPredictionRequest, request_obj: Request, current_user: DBUser = Depends(get_current_active_user)):
     try:
-        features = [
-            rating_request.votes,  # CHANGED from request.votes
-            rating_request.average_cost,  # CHANGED from request.average_cost
-            rating_request.price_range,  # CHANGED from request.price_range
-            1 if rating_request.has_table_booking else 0,  # CHANGED from request.has_table_booking
-            1 if rating_request.has_online_delivery else 0,  # CHANGED from request.has_online_delivery
-        ]
-
-        prediction = rating_predictor.predict(features)
-
-        return {
-            "success": True,
-            "predicted_rating": round(prediction, 2),
-            "features_used": {
-                "votes": rating_request.votes,  # CHANGED from request.votes
-                "average_cost": rating_request.average_cost,  # CHANGED from request.average_cost
-                "price_range": rating_request.price_range,  # CHANGED from request.price_range
-                "has_table_booking": rating_request.has_table_booking,  # CHANGED from request.has_table_booking
-                "has_online_delivery": rating_request.has_online_delivery,  # CHANGED from request.has_online_delivery
-            },
-        }
+        predictor = get_rating_predictor()
+        prediction = await asyncio.get_event_loop().run_in_executor(
+            executor,
+            predictor.predict_rating,
+            request.dict()
+        )
+        return {"success": True, "predicted_rating": prediction}
     except Exception as e:
         logger.error(f"Rating prediction error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/api/recommend-restaurants")
-def recommend_restaurants(request: RecommendationRequest):
-    """Get restaurant recommendations based on user preferences"""
-    try:
-        recommendations = recommender.recommend(
-            cuisine=request.cuisine,
-            city=request.city,
-            price_range=request.price_range,
-            top_n=request.top_n,
-        )
 
-        return {
-            "success": True,
-            "count": len(recommendations),
-            "recommendations": recommendations,
-            "filters_applied": {
-                "cuisine": request.cuisine,
-                "city": request.city,
-                "price_range": request.price_range,
-            },
-        }
+@app.post("/api/recommend-restaurants")
+@limiter.limit("5/minute")
+async def recommend_restaurants(request: RecommendationRequest, request_obj: Request, current_user: DBUser = Depends(get_current_active_user)):
+    try:
+        recommender = get_restaurant_recommender()
+        recommendations = await asyncio.get_event_loop().run_in_executor(
+            executor,
+            recommender.recommend,
+            request.location,
+            request.cuisine,
+            request.count,
+        )
+        return {"success": True, "recommendations": recommendations}
     except Exception as e:
         logger.error(f"Recommendation error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/api/recommend-restaurants/options")
-def get_recommendation_options():
-    """Get available cuisines and cities for filtering"""
+@app.get("/api/cuisine-classification/{url}")
+@limiter.limit("5/minute")
+async def classify_cuisine_from_url(url: str, request: Request):
     try:
-        return {
-            "success": True,
-            "cuisines": recommender.get_unique_cuisines(),
-            "cities": recommender.get_unique_cities(),
-        }
-    except Exception as e:
-        logger.error(f"Options error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/api/classify-cuisine")
-def classify_cuisine(request: CuisineClassificationRequest):
-    """Classify restaurant cuisine based on features"""
-    try:
-        features = [
-            request.aggregate_rating,
-            request.votes,
-            request.price_range,
-            request.average_cost,
-            1 if request.has_table_booking else 0,
-            1 if request.has_online_delivery else 0,
-        ]
-
-        result = cuisine_classifier.predict(features)
-
-        return {
-            "success": True,
-            "predicted_cuisine": result["cuisine"],
-            "confidence": round(result["confidence"] * 100, 2),
-            "features_used": {
-                "aggregate_rating": request.aggregate_rating,
-                "votes": request.votes,
-                "price_range": request.price_range,
-                "average_cost": request.average_cost,
-                "has_table_booking": request.has_table_booking,
-                "has_online_delivery": request.has_online_delivery,
-            },
-        }
+        classifier = get_cuisine_classifier()
+        cuisine = await asyncio.get_event_loop().run_in_executor(
+            executor,
+            classifier.classify_from_url,
+            url
+        )
+        return {"success": True, "cuisine": cuisine}
     except Exception as e:
         logger.error(f"Cuisine classification error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/api/location-analysis")
-def get_location_analysis():
-    """Get comprehensive location-based analysis"""
+@app.get("/api/location-analysis/map")
+async def get_map_data():
     try:
-        return {
-            "success": True,
-            "insights": location_analyzer.get_insights(),
-            "city_stats": location_analyzer.analyze_by_city(),
-            "locality_stats": location_analyzer.analyze_by_locality(),
-        }
-    except Exception as e:
-        logger.error(f"Location analysis error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/api/location-analysis/map-data")
-def get_map_data():
-    """Get location coordinates for map visualization"""
-    try:
-        locations = location_analyzer.get_location_distribution()
-
+        analyzer = get_location_analyzer()
+        locations = await asyncio.get_event_loop().run_in_executor(
+            executor,
+            analyzer.get_map_data
+        )
         return {
             "success": True,
             "count": len(locations),
@@ -343,11 +267,14 @@ def get_map_data():
 
 
 @app.get("/api/location-analysis/cities/{city}")
-def get_city_localities(city: str):
-    """Get locality analysis for a specific city"""
+async def get_city_localities(city: str):
     try:
-        localities = location_analyzer.analyze_by_locality(city)
-
+        analyzer = get_location_analyzer()
+        localities = await asyncio.get_event_loop().run_in_executor(
+            executor,
+            analyzer.analyze_by_locality,
+            city
+        )
         return {"success": True, "city": city, "localities": localities}
     except Exception as e:
         logger.error(f"City localities error: {e}")
@@ -355,28 +282,19 @@ def get_city_localities(city: str):
 
 
 @app.get("/api/admin/protected_data")
-def get_protected_data(current_user: User = Depends(get_current_active_admin_user)):
-    """
-    An example endpoint that is only accessible by an admin user.
-    """
+async def get_protected_data(current_user: DBUser = Depends(get_current_active_admin_user)):
     return {"message": f"Welcome, {current_user.username}! This is a protected admin resource."}
 
 
 @app.get("/api/ping")
 @limiter.limit("10/minute")
-def ping(request: Request):
+async def ping(request: Request):
     return {"message": "pong"}
 
 
 @app.exception_handler(RateLimitExceeded)
-async def custom_rate_limit_handler(request: Request, exc: RateLimitExceeded):
+async def custom_rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded):
     return JSONResponse(
         status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-        content={"detail": "Too Many Requests"}
+        content={"detail": "Too many requests. Please try again later."},
     )
-
-if __name__ == "__main__":
-    import uvicorn
-
-    uvicorn.run(app, host="0.0.0.0", port=8000)
-
