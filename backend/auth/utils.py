@@ -6,8 +6,8 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from ..database import get_db
-from ..models import User as DBUser
+from backend.database import get_db # Changed from 'from ..database import get_db'
+from backend.models import User as DBUser # Changed from 'from ..models import User as DBUser'
 
 # --- JWT Configuration ---
 SECRET_KEY = os.getenv("SECRET_KEY")

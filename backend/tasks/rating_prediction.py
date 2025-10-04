@@ -13,12 +13,20 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# Corrected path to point to the backend directory
+BASE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
+DATA_PATH = os.path.join(BASE_DIR, 'data', 'Dataset.csv')
 
 class RatingPredictor:
     def __init__(self):
         self.model = None
         self.encoders = {}
         self.feature_columns = []
+        self.model_dir = os.path.join(BASE_DIR, 'models')
+        self.model_file = os.path.join(self.model_dir, 'rating_predictor.pkl')
+        self.encoders_file = os.path.join(self.model_dir, 'rating_encoders.pkl')
+        self.features_file = os.path.join(self.model_dir, 'rating_features.pkl')
+
         self.redis_client = self._connect_to_redis()
 
     def _connect_to_redis(self):
@@ -28,7 +36,7 @@ class RatingPredictor:
                 host=os.getenv('REDIS_HOST', 'localhost'),
                 port=int(os.getenv('REDIS_PORT', 6379)),
                 db=0,
-                decode_responses=True,  # Decode responses to get strings instead of bytes
+                decode_responses=True,
             )
             r.ping()
             logger.info("Successfully connected to Redis.")
@@ -41,29 +49,20 @@ class RatingPredictor:
         """Preprocess restaurant data for rating prediction"""
         df = df.copy()
 
-        # Drop rows with missing target variable
         df = df.dropna(subset=['Aggregate rating'])
 
         categorical_cols = ['City', 'Cuisines', 'Has Table booking', 'Has Online delivery', 'Price range']
 
         for col in categorical_cols:
             if col in df.columns:
-                # Fill missing values first
                 df[col] = df[col].fillna('Unknown').astype(str)
                 
                 if fit_encoders or col not in self.encoders:
-                    # Fit new encoder
                     self.encoders[col] = LabelEncoder()
                     self.encoders[col].fit(df[col])
                     df[col] = self.encoders[col].transform(df[col])
                 else:
-                    # Transform using existing encoder, handle unseen labels
-                    # Get unique values in current data
                     unique_vals = df[col].unique()
-                    
-                    # Create a mapping for unseen values to a default (e.g., -1)
-                    # NOTE: This approach is simpler but can be improved with a more robust strategy
-                    # Here we transform existing labels and set new ones to -1
                     unseen_labels_mask = ~np.isin(unique_vals, self.encoders[col].classes_)
                     unseen_labels = unique_vals[unseen_labels_mask]
                     
@@ -72,29 +71,24 @@ class RatingPredictor:
                     
                     df[col] = self.encoders[col].transform(df[col])
 
-
-        # Ensure all columns are numeric
         df = df.apply(pd.to_numeric, errors='coerce')
         
-        # Define features and target
         feature_cols = ['Has Online delivery', 'Has Table booking', 'Votes', 'Cost', 'City', 'Cuisines', 'Rest type']
         self.feature_columns = [col for col in feature_cols if col in df.columns]
 
         X = df[self.feature_columns]
         y = df['Aggregate rating']
 
-        # Drop any rows with NaN values that might have been created by the coerce
         X = X.dropna()
         y = y.loc[X.index]
 
         return X, y
 
-    def train(self, data_path, n_estimators=100, max_depth=10, refit_encoders=True):
+    def train(self, data_path=DATA_PATH, n_estimators=100, max_depth=10, refit_encoders=True):
         """Trains the RandomForestRegressor model."""
         try:
             df = pd.read_csv(data_path)
             
-            # For this dataset, 'Restaurant ID' is not a feature for prediction
             df.rename(columns={
                 'Has Table booking': 'Has Table booking',
                 'Has Online delivery': 'Has Online delivery',
@@ -102,7 +96,6 @@ class RatingPredictor:
                 'Restaurant Type': 'Rest type'
             }, inplace=True)
             
-            # Handle string-based bool columns and convert to int
             if 'Has Table booking' in df.columns:
                 df['Has Table booking'] = df['Has Table booking'].str.lower().map({'yes': 1, 'no': 0}).fillna(0)
             if 'Has Online delivery' in df.columns:
@@ -116,11 +109,10 @@ class RatingPredictor:
                 n_estimators=n_estimators,
                 max_depth=max_depth,
                 random_state=42,
-                n_jobs=-1  # Use all available cores for training
+                n_jobs=-1
             )
             self.model.fit(X_train, y_train)
 
-            # Evaluate the model
             y_pred = self.model.predict(X_test)
             mse = mean_squared_error(y_test, y_pred)
             r2 = r2_score(y_test, y_pred)
@@ -129,10 +121,10 @@ class RatingPredictor:
             print(f"Mean Squared Error (MSE): {mse}")
             print(f"R-squared (R2): {r2}")
 
-            # Save the trained model and encoders
-            joblib.dump(self.model, 'models/rating_predictor.pkl')
-            joblib.dump(self.encoders, 'models/rating_encoders.pkl')
-            joblib.dump(self.feature_columns, 'models/rating_features.pkl')
+            os.makedirs(self.model_dir, exist_ok=True)
+            joblib.dump(self.model, self.model_file)
+            joblib.dump(self.encoders, self.encoders_file)
+            joblib.dump(self.feature_columns, self.features_file)
 
             return {"mse": mse, "r2": r2}
 
@@ -143,9 +135,9 @@ class RatingPredictor:
     def load_model(self):
         """Loads a pre-trained model and its encoders."""
         try:
-            self.model = joblib.load('models/rating_predictor.pkl')
-            self.encoders = joblib.load('models/rating_encoders.pkl')
-            self.feature_columns = joblib.load('models/rating_features.pkl')
+            self.model = joblib.load(self.model_file)
+            self.encoders = joblib.load(self.encoders_file)
+            self.feature_columns = joblib.load(self.features_file)
             print("Pre-trained model, encoders, and features loaded successfully.")
         except FileNotFoundError as e:
             print(f"Error loading model files: {e}. Please ensure you have run the training script first.")
@@ -153,7 +145,6 @@ class RatingPredictor:
 
     def _create_cache_key(self, data: dict) -> str:
         """Generates a consistent cache key from input data."""
-        # Use a sorted tuple of (key, value) pairs to ensure consistency
         sorted_items = sorted(data.items())
         return json.dumps(sorted_items)
 
@@ -174,51 +165,38 @@ class RatingPredictor:
             if not self.model:
                 raise RuntimeError("Model is not loaded. Please train or load a model first.")
 
-        # Convert input data to a DataFrame for prediction
         df = pd.DataFrame([data])
         
-        # Preprocess the input data using the loaded encoders
         for col in self.encoders:
             if col in df.columns:
-                # Handle unseen labels by mapping them to a default value (e.g., -1)
                 le = self.encoders[col]
-                # Filter out unseen labels
                 df[col] = df[col].apply(lambda x: x if x in le.classes_ else 'Unknown')
                 
-                # Update the encoder's classes to include 'Unknown' if not present
                 if 'Unknown' not in le.classes_:
                     le.classes_ = np.append(le.classes_, 'Unknown')
                 
-                # Transform using the updated encoder
                 df[col] = le.transform(df[col])
             else:
-                # If a feature is missing, fill with a default value (e.g., 0)
                 df[col] = 0
 
-        # Ensure feature order matches the trained model
         input_data = df[self.feature_columns].values
         
-        # Make a prediction
         prediction = self.model.predict(input_data)[0]
-        
-        # Clamp the prediction to a reasonable range, e.g., 0-5
         prediction = max(0.0, min(5.0, float(prediction)))
 
         if self.redis_client:
-            self.redis_client.setex(cache_key, 3600, json.dumps(prediction)) # Cache for 1 hour
+            self.redis_client.setex(cache_key, 3600, json.dumps(prediction))
 
         return prediction
 
-    def objective(self, trial, data_path='data/Dataset.csv'):
+    def objective(self, trial, data_path=DATA_PATH):
         """Objective function for Optuna hyperparameter tuning."""
         n_estimators = trial.suggest_int('n_estimators', 50, 200)
         max_depth = trial.suggest_int('max_depth', 5, 20)
         
-        # Load and preprocess data (use refit_encoders=True for each trial)
         try:
             df = pd.read_csv(data_path)
             
-            # Clean and prepare data
             df.rename(columns={
                 'Has Table booking': 'Has Table booking',
                 'Has Online delivery': 'Has Online delivery',
@@ -232,28 +210,26 @@ class RatingPredictor:
 
             X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-            # Train a model for this trial
             model = RandomForestRegressor(
                 n_estimators=n_estimators,
                 max_depth=max_depth,
                 random_state=42,
-                n_jobs=-1  # Use all available cores
+                n_jobs=-1
             )
             model.fit(X_train, y_train)
 
-            # Evaluate and return the score
             y_pred = model.predict(X_test)
             r2 = r2_score(y_test, y_pred)
             return r2
             
         except FileNotFoundError:
             print(f"Data file not found at {data_path}")
-            return -1.0 # Return a bad score to indicate an issue
+            return -1.0
         except Exception as e:
             print(f"An error occurred during tuning trial: {e}")
             return -1.0
             
-    def tune_hyperparameters(self, n_trials=50, data_path='data/Dataset.csv'):
+    def tune_hyperparameters(self, n_trials=50, data_path=DATA_PATH):
         """Performs hyperparameter tuning using Optuna and retrains the model with the best parameters."""
         print("Starting hyperparameter tuning...")
         study = optuna.create_study(direction='maximize')
@@ -266,11 +242,9 @@ class RatingPredictor:
         for key, value in study.best_params.items():
             print(f"    {key}: {value}")
             
-        # Retrain with best hyperparameters
         best_params = study.best_params
         print("Retraining model with best hyperparameters...")
         
-        # Use the same encoders, don't refit them
         results = self.train(
             data_path=data_path,
             n_estimators=best_params['n_estimators'],
@@ -284,37 +258,18 @@ class RatingPredictor:
 if __name__ == "__main__":
     predictor = RatingPredictor()
     
-    # IMPORTANT: Check your actual filename - remove space if it exists
-    # It should be either "Dataset.csv" or "Dataset .csv" (with space)
-    DATA_PATH = "data/Dataset .csv"  
-    
-    # Check if file exists and suggest correction
     if not os.path.exists(DATA_PATH):
-        print(f"File not found at: {DATA_PATH}")
-        # Try alternative path without space
-        alt_path = "data/Dataset.csv"
-        if os.path.exists(alt_path):
-            print(f"Found file at: {alt_path}")
-            DATA_PATH = alt_path
-        else:
-            print("Please verify the correct file path and name.")
-            exit(1)
-    
-    # --- Option 1: Train with default hyperparameters ---
-    # results = predictor.train(DATA_PATH)
-    # print("\nInitial Training Results:")
-    # print(results)
-    
+        print(f"Data file not found at: {DATA_PATH}")
+        exit(1)
+
     # --- Option 2: Tune hyperparameters and retrain ---
     results = predictor.tune_hyperparameters(n_trials=20, data_path=DATA_PATH)
     print("\nHyperparameter Tuning Results:")
     print(results)
     
     # --- Example prediction ---
-    # Load the best model
     predictor.load_model()
     
-    # Example data for prediction
     new_data = {
         'online_order': 1,
         'book_table': 1,

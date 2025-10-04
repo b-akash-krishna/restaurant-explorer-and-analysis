@@ -1,7 +1,6 @@
 import os
 from dotenv import load_dotenv
 
-# Load environment variables from .env file
 load_dotenv()
 
 import logging
@@ -14,10 +13,11 @@ from fastapi import Depends, FastAPI, HTTPException, status, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.responses import JSONResponse
-from fastapi.middleware.gzip import GZipMiddleware  # NEW: Import GZipMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+# Corrected imports using absolute paths from the project root
 from backend.tasks.cuisine_classification import CuisineClassifier
 from backend.tasks.location_analysis import LocationAnalyzer
 from backend.tasks.rating_prediction import RatingPredictor
@@ -99,7 +99,6 @@ app.add_middleware(SlowAPIMiddleware)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# NEW: Add GZip compression middleware
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 # --- Models ---
@@ -143,7 +142,7 @@ executor = None
 def startup_event():
     global executor
     executor = ThreadPoolExecutor()
-    Base.metadata.create_all(bind=engine)  # Create database tables
+    Base.metadata.create_all(bind=engine)
     logger.info("Application started and ThreadPoolExecutor initialized.")
 
 
@@ -195,6 +194,25 @@ def login_for_access_token(
 @app.get("/api/users/me/")
 async def read_users_me(current_user: DBUser = Depends(get_current_active_user)):
     return current_user
+
+
+# NEW: Endpoint to get recommendation options
+@app.get("/api/recommend-restaurants/options")
+async def get_recommendation_options():
+    try:
+        recommender = get_restaurant_recommender()
+        cuisines = await asyncio.get_event_loop().run_in_executor(
+            executor,
+            recommender.get_unique_cuisines,
+        )
+        cities = await asyncio.get_event_loop().run_in_executor(
+            executor,
+            recommender.get_unique_cities,
+        )
+        return {"cuisines": cuisines, "cities": cities}
+    except Exception as e:
+        logger.error(f"Error fetching recommendation options: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # --- ASYNC ML ENDPOINTS ---

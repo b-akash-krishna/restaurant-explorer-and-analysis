@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { ThumbsUp, Loader2, Star } from 'lucide-react';
+import { Skeleton } from "@/components/ui/skeleton";
 
 interface Restaurant {
   name: string;
@@ -15,6 +16,17 @@ interface RecommendationResult {
   count: number;
 }
 
+const RecommendationSkeleton = () => (
+  <div className="mt-6">
+    <Skeleton className="h-8 w-1/2 mb-4" />
+    <div className="space-y-4">
+      <Skeleton className="h-24 w-full rounded-lg" />
+      <Skeleton className="h-24 w-full rounded-lg" />
+      <Skeleton className="h-24 w-full rounded-lg" />
+    </div>
+  </div>
+);
+
 function Recommendations() {
   const [loading, setLoading] = useState(false);
   const [optionsLoading, setOptionsLoading] = useState(true);
@@ -23,11 +35,11 @@ function Recommendations() {
   const [cuisines, setCuisines] = useState<string[]>([]);
   const [cities, setCities] = useState<string[]>([]);
 
+  // Corrected state to match backend's model
   const [formData, setFormData] = useState({
     cuisine: '',
-    city: '',
-    price_range: 0,
-    top_n: 10,
+    location: '', 
+    count: 5,
   });
 
   useEffect(() => {
@@ -35,18 +47,34 @@ function Recommendations() {
   }, []);
 
   const fetchOptions = async () => {
+    setOptionsLoading(true);
     try {
       const response = await fetch('http://localhost:8000/api/recommend-restaurants/options');
       if (response.ok) {
         const data = await response.json();
         setCuisines(data.cuisines || []);
         setCities(data.cities || []);
+        setFormData(prev => ({
+          ...prev,
+          cuisine: data.cuisines[0] || '',
+          location: data.cities[0] || '',
+        }));
+      } else {
+        throw new Error('Failed to fetch recommendation options.');
       }
     } catch (err) {
-      console.error('Failed to fetch options');
+      setError(err.message);
     } finally {
       setOptionsLoading(false);
     }
+  };
+
+  const handleChange = (e: React.ChangeEvent<HTMLSelectElement | HTMLInputElement>) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({ 
+      ...prev, 
+      [name]: name === 'count' ? parseInt(value, 10) : value 
+    }));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -58,120 +86,98 @@ function Recommendations() {
     try {
       const response = await fetch('http://localhost:8000/api/recommend-restaurants', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          cuisine: formData.cuisine || null,
-          city: formData.city || null,
-          price_range: formData.price_range || null,
-          top_n: formData.top_n,
-        }),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+        },
+        body: JSON.stringify(formData),
       });
 
-      if (!response.ok) throw new Error('Recommendation failed');
+      if (!response.ok) {
+        if (response.status === 401) {
+          throw new Error('Authentication failed. Please log in again.');
+        }
+        if (response.status === 422) {
+            const errorData = await response.json();
+            const detailedMessage = errorData.detail 
+              ? errorData.detail.map((err: any) => `${err.loc.join(' -> ')}: ${err.msg}`).join('; ')
+              : 'Invalid input data. Please check your form and try again.';
+            throw new Error(`Validation Error: ${detailedMessage}`);
+        }
+        throw new Error(`Recommendation failed with status: ${response.status}`);
+      }
 
       const data = await response.json();
       setResult(data);
     } catch (err) {
-      setError('Failed to get recommendations. Make sure the backend server is running.');
+      setError(err.message);
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center space-x-3">
-        <ThumbsUp className="h-8 w-8 text-green-600" />
-        <h1 className="text-3xl font-bold text-gray-900">Restaurant Recommendations</h1>
-      </div>
-
-      <div className="bg-white rounded-lg shadow-md p-6">
-        <p className="text-gray-600 mb-6">
-          Get personalized restaurant recommendations based on your preferences for cuisine, location, and price range.
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+      <div className="bg-white shadow-xl rounded-xl p-8 w-full max-w-2xl">
+        <div className="flex items-center justify-center mb-6">
+          <ThumbsUp className="w-12 h-12 text-green-500" />
+        </div>
+        <h2 className="text-3xl font-bold text-center text-gray-800 mb-2">Get Recommendations</h2>
+        <p className="text-center text-gray-500 mb-8">
+          Find the best restaurants based on your preferences.
         </p>
 
-        <form onSubmit={handleSubmit} className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Preferred Cuisine
-              </label>
-              <select
-                value={formData.cuisine}
-                onChange={(e) => setFormData({ ...formData, cuisine: e.target.value })}
-                className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                disabled={optionsLoading}
-              >
-                <option value="">Any Cuisine</option>
-                {cuisines.slice(0, 30).map((cuisine) => (
-                  <option key={cuisine} value={cuisine}>
-                    {cuisine}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                City
-              </label>
-              <select
-                value={formData.city}
-                onChange={(e) => setFormData({ ...formData, city: e.target.value })}
-                className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                disabled={optionsLoading}
-              >
-                <option value="">Any City</option>
-                {cities.slice(0, 30).map((city) => (
-                  <option key={city} value={city}>
-                    {city}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Price Range
-              </label>
-              <select
-                value={formData.price_range}
-                onChange={(e) => setFormData({ ...formData, price_range: parseInt(e.target.value) })}
-                className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500 focus:border-transparent"
-              >
-                <option value="0">Any Price</option>
-                <option value="1">1 - Budget</option>
-                <option value="2">2 - Moderate</option>
-                <option value="3">3 - Expensive</option>
-                <option value="4">4 - Very Expensive</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Number of Recommendations
-              </label>
-              <input
-                type="number"
-                value={formData.top_n}
-                onChange={(e) => setFormData({ ...formData, top_n: parseInt(e.target.value) })}
-                className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                min="1"
-                max="50"
-                required
-              />
-            </div>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label htmlFor="city" className="block text-sm font-medium text-gray-700">
+              City
+            </label>
+            <select
+              id="city"
+              name="location"
+              value={formData.location}
+              onChange={handleChange}
+              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-green-500 focus:ring-green-500"
+              required
+            >
+              {optionsLoading ? (
+                <option>Loading cities...</option>
+              ) : (
+                cities.map((city, index) => <option key={index} value={city}>{city}</option>)
+              )}
+            </select>
           </div>
 
+          <div>
+            <label htmlFor="cuisine" className="block text-sm font-medium text-gray-700">
+              Cuisine
+            </label>
+            <select
+              id="cuisine"
+              name="cuisine"
+              value={formData.cuisine}
+              onChange={handleChange}
+              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-green-500 focus:ring-green-500"
+              required
+            >
+              {optionsLoading ? (
+                <option>Loading cuisines...</option>
+              ) : (
+                cuisines.map((cuisine, index) => <option key={index} value={cuisine}>{cuisine}</option>)
+              )}
+            </select>
+          </div>
           <button
             type="submit"
-            disabled={loading}
-            className="w-full bg-green-600 text-white py-3 rounded-md font-medium hover:bg-green-700 transition-colors disabled:bg-green-300 disabled:cursor-not-allowed flex items-center justify-center"
+            className={`w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white ${
+              loading || optionsLoading ? 'bg-green-400 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500'
+            }`}
+            disabled={loading || optionsLoading}
           >
             {loading ? (
               <>
-                <Loader2 className="animate-spin h-5 w-5 mr-2" />
-                Finding Recommendations...
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Finding...
               </>
             ) : (
               'Get Recommendations'
@@ -181,14 +187,18 @@ function Recommendations() {
 
         {error && (
           <div className="mt-6 p-4 bg-red-50 border border-red-200 rounded-md">
-            <p className="text-red-600 text-sm">{error}</p>
+            <p className="text-red-600 text-sm">
+              <span className="font-bold">Error:</span> {error}
+            </p>
           </div>
         )}
+        
+        {loading && <RecommendationSkeleton />}
 
         {result && result.recommendations.length > 0 && (
           <div className="mt-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">
-              Found {result.count} Recommendations
+              Top {result.recommendations.length} Recommendations
             </h3>
             <div className="grid grid-cols-1 gap-4">
               {result.recommendations.map((restaurant, index) => (
