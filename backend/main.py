@@ -216,39 +216,101 @@ async def get_recommendation_options():
 
 
 # --- ASYNC ML ENDPOINTS ---
+# @app.post("/api/predict-rating")
+# @limiter.limit("5/minute")
+# # async def predict_rating(request: RatingPredictionRequest, request_obj: Request, current_user: DBUser = Depends(get_current_active_user)):
+# async def predict_rating(request: RatingPredictionRequest, request_obj: Request):
+#     try:
+#         predictor = get_rating_predictor()
+#         prediction = await asyncio.get_event_loop().run_in_executor(
+#             executor,
+#             predictor.predict_rating,
+#             request.dict()
+#         )
+#         return {"success": True, "predicted_rating": prediction}
+#     except Exception as e:
+#         logger.error(f"Rating prediction error: {e}")
+#         raise HTTPException(status_code=500, detail=str(e))
+
+
+# @app.post("/api/recommend-restaurants")
+# @limiter.limit("5/minute")
+# # async def recommend_restaurants(request: RecommendationRequest, request_obj: Request, current_user: DBUser = Depends(get_current_active_user)):
+# async def recommend_restaurants(request: RecommendationRequest, request_obj: Request):
+#     try:
+#         recommender = get_restaurant_recommender()
+#         recommendations = await asyncio.get_event_loop().run_in_executor(
+#             executor,
+#             recommender.recommend,
+#             request.cuisine,      # First param: cuisine
+#             request.location,     # Second param: city (your frontend sends 'location')
+#             None,                 # Third param: price_range
+#             request.count,        # Fourth param: top_n
+#         )
+#         return {"success": True, "recommendations": recommendations}
+#     except Exception as e:
+#         logger.error(f"Recommendation error: {e}")
+#         raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/api/predict-rating")
 @limiter.limit("5/minute")
-async def predict_rating(request: RatingPredictionRequest, request_obj: Request, current_user: DBUser = Depends(get_current_active_user)):
+async def predict_rating(data: RatingPredictionRequest, request: Request):
     try:
         predictor = get_rating_predictor()
+        
+        # Map frontend field names to model field names
+        model_input = {
+            'Has Online delivery': data.online_order,
+            'Has Table booking': data.book_table,
+            'Votes': data.votes,
+            'Cost': data.cost,
+            'City': data.location,
+            'Cuisines': data.cuisines,
+            'Rest type': data.rest_type
+        }
+        
         prediction = await asyncio.get_event_loop().run_in_executor(
             executor,
             predictor.predict_rating,
-            request.dict()
+            model_input
         )
-        return {"success": True, "predicted_rating": prediction}
+        
+        # Return the response in the format the frontend expects
+        return {
+            "success": True,
+            "predicted_rating": prediction,
+            "features_used": {
+                "votes": data.votes,
+                "online_order": data.online_order,
+                "book_table": data.book_table,
+                "location": data.location,
+                "rest_type": data.rest_type,
+                "cuisines": data.cuisines,
+                "cost": data.cost
+            }
+        }
     except Exception as e:
         logger.error(f"Rating prediction error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-
 @app.post("/api/recommend-restaurants")
 @limiter.limit("5/minute")
-async def recommend_restaurants(request: RecommendationRequest, request_obj: Request, current_user: DBUser = Depends(get_current_active_user)):
+async def recommend_restaurants(data: RecommendationRequest, request: Request):
+    # Same changes as above
     try:
         recommender = get_restaurant_recommender()
         recommendations = await asyncio.get_event_loop().run_in_executor(
             executor,
             recommender.recommend,
-            request.location,
-            request.cuisine,
-            request.count,
+            data.cuisine,      # Changed from request.cuisine
+            data.location,     # Changed from request.location
+            None,
+            data.count,        # Changed from request.count
         )
         return {"success": True, "recommendations": recommendations}
     except Exception as e:
         logger.error(f"Recommendation error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-
 
 @app.get("/api/cuisine-classification/{url}")
 @limiter.limit("5/minute")

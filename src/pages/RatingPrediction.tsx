@@ -280,7 +280,7 @@ function RatingPrediction() {
               </div>
             </div>
             <div className="mt-4 pt-4 border-t border-blue-200">
-              <p className="text-sm text-gray-600">
+              <div className="text-sm text-gray-600">
                 <span className="font-semibold">Features Used:</span>
                 <ul className="list-disc list-inside mt-2 space-y-1">
                   <li>Votes: {result.features_used.votes}</li>
@@ -291,7 +291,7 @@ function RatingPrediction() {
                   <li>Cuisines: {result.features_used.cuisines}</li>
                   <li>Average Cost: {result.features_used.cost}</li>
                 </ul>
-              </p>
+              </div>
             </div>
           </div>
         )}

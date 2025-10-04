@@ -51,7 +51,8 @@ class RatingPredictor:
 
         df = df.dropna(subset=['Aggregate rating'])
 
-        categorical_cols = ['City', 'Cuisines', 'Has Table booking', 'Has Online delivery', 'Price range']
+        # Only encode truly categorical columns (after numeric conversion in train())
+        categorical_cols = ['City', 'Cuisines', 'Rest type']
 
         for col in categorical_cols:
             if col in df.columns:
@@ -151,7 +152,6 @@ class RatingPredictor:
     def predict_rating(self, data: dict):
         """
         Predicts the rating for a given restaurant using caching.
-        This function is designed to be called by FastAPI endpoints.
         """
         if self.redis_client:
             cache_key = self._create_cache_key(data)
@@ -167,19 +167,27 @@ class RatingPredictor:
 
         df = pd.DataFrame([data])
         
-        for col in self.encoders:
-            if col in df.columns:
+        # Only encode the categorical columns that were encoded during training
+        for col in ['City', 'Cuisines', 'Rest type']:
+            if col in df.columns and col in self.encoders:
                 le = self.encoders[col]
+                df[col] = df[col].fillna('Unknown').astype(str)
                 df[col] = df[col].apply(lambda x: x if x in le.classes_ else 'Unknown')
                 
                 if 'Unknown' not in le.classes_:
                     le.classes_ = np.append(le.classes_, 'Unknown')
                 
                 df[col] = le.transform(df[col])
-            else:
+            elif col not in df.columns:
                 df[col] = 0
 
-        input_data = df[self.feature_columns].values
+        # Ensure all required columns exist
+        for col in self.feature_columns:
+            if col not in df.columns:
+                df[col] = 0
+
+        # Use DataFrame with proper column names instead of .values
+        input_data = df[self.feature_columns]
         
         prediction = self.model.predict(input_data)[0]
         prediction = max(0.0, min(5.0, float(prediction)))
