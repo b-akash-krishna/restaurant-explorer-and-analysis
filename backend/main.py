@@ -252,6 +252,22 @@ async def get_recommendation_options():
 #         logger.error(f"Recommendation error: {e}")
 #         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/api/predict-rating/options")
+async def get_prediction_options():
+    """Get options for rating prediction form"""
+    try:
+        predictor = get_rating_predictor()
+        options = await asyncio.get_event_loop().run_in_executor(
+            executor,
+            predictor.get_prediction_options
+        )
+        if options is None:
+            raise HTTPException(status_code=500, detail="Failed to load options")
+        return {"success": True, **options}
+    except Exception as e:
+        logger.error(f"Error fetching prediction options: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    
 @app.post("/api/predict-rating")
 @limiter.limit("5/minute")
 async def predict_rating(data: RatingPredictionRequest, request: Request):

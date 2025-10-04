@@ -262,6 +262,116 @@ class RatingPredictor:
         print("Model retrained and saved successfully!")
         return results
 
+    def get_prediction_options(self):
+        """Get unique values for dropdown options and a random sample"""
+        try:
+            df = pd.read_csv(DATA_PATH)
+            
+            # Print available columns for debugging
+            print(f"Available columns: {df.columns.tolist()}")
+            
+            # Rename columns if they exist
+            rename_map = {}
+            if 'Has Table booking' in df.columns:
+                rename_map['Has Table booking'] = 'Has Table booking'
+            if 'Has Online delivery' in df.columns:
+                rename_map['Has Online delivery'] = 'Has Online delivery'
+            if 'Average Cost for two' in df.columns:
+                rename_map['Average Cost for two'] = 'Cost'
+            if 'Restaurant Type' in df.columns:
+                rename_map['Restaurant Type'] = 'Rest type'
+            
+            df.rename(columns=rename_map, inplace=True)
+            
+            # Convert Yes/No to 1/0
+            if 'Has Table booking' in df.columns:
+                df['Has Table booking'] = df['Has Table booking'].astype(str).str.lower().map({'yes': 1, 'no': 0}).fillna(0)
+            if 'Has Online delivery' in df.columns:
+                df['Has Online delivery'] = df['Has Online delivery'].astype(str).str.lower().map({'yes': 1, 'no': 0}).fillna(0)
+            
+            # Get unique values with fallbacks
+            locations = []
+            if 'City' in df.columns:
+                locations = sorted(df['City'].dropna().unique().tolist())[:100]
+            
+            rest_types = []
+            if 'Rest type' in df.columns:
+                rest_types = sorted(df['Rest type'].dropna().unique().tolist())[:50]
+            
+            cuisines = []
+            if 'Cuisines' in df.columns:
+                for cuisine_str in df['Cuisines'].dropna():
+                    cuisines.extend([c.strip() for c in str(cuisine_str).split(',')])
+                cuisines = sorted(list(set(cuisines)))[:100]
+            
+            # Get a random sample with safe fallbacks
+            sample_row = df.sample(1).iloc[0]
+            
+            random_sample = {
+                'votes': int(sample_row.get('Votes', 100)) if pd.notna(sample_row.get('Votes')) else 100,
+                'online_order': int(sample_row.get('Has Online delivery', 1)) if pd.notna(sample_row.get('Has Online delivery')) else 1,
+                'book_table': int(sample_row.get('Has Table booking', 0)) if pd.notna(sample_row.get('Has Table booking')) else 0,
+                'location': str(sample_row.get('City', locations[0] if locations else 'Unknown')),
+                'rest_type': str(sample_row.get('Rest type', rest_types[0] if rest_types else 'Casual Dining')),
+                'cuisines': str(sample_row.get('Cuisines', cuisines[0] if cuisines else 'North Indian')),
+                'cost': int(sample_row.get('Cost', 500)) if pd.notna(sample_row.get('Cost')) else 500
+            }
+            
+            # Get statistics with safe fallbacks
+            stats = {
+                'votes_range': {
+                    'min': int(df['Votes'].min()) if 'Votes' in df.columns else 0,
+                    'max': int(df['Votes'].max()) if 'Votes' in df.columns else 10000,
+                    'avg': int(df['Votes'].mean()) if 'Votes' in df.columns else 100
+                },
+                'cost_range': {
+                    'min': int(df['Cost'].min()) if 'Cost' in df.columns else 0,
+                    'max': int(df['Cost'].max()) if 'Cost' in df.columns else 5000,
+                    'avg': int(df['Cost'].mean()) if 'Cost' in df.columns else 500
+                }
+            }
+            
+            # Ensure we have at least some data
+            if not locations:
+                locations = ['Unknown']
+            if not rest_types:
+                rest_types = ['Casual Dining', 'Quick Bites', 'Cafe', 'Fine Dining']
+            if not cuisines:
+                cuisines = ['North Indian', 'Chinese', 'Continental', 'Italian']
+            
+            return {
+                'locations': locations,
+                'rest_types': rest_types,
+                'cuisines': cuisines,
+                'random_sample': random_sample,
+                'stats': stats
+            }
+            
+        except Exception as e:
+            import traceback
+            print(f"Error loading prediction options: {e}")
+            traceback.print_exc()
+            # Return safe defaults
+            return {
+                'locations': ['Bangalore', 'Delhi', 'Mumbai'],
+                'rest_types': ['Casual Dining', 'Quick Bites', 'Cafe'],
+                'cuisines': ['North Indian', 'Chinese', 'Continental'],
+                'random_sample': {
+                    'votes': 100,
+                    'online_order': 1,
+                    'book_table': 0,
+                    'location': 'Bangalore',
+                    'rest_type': 'Casual Dining',
+                    'cuisines': 'North Indian',
+                    'cost': 500
+                },
+                'stats': {
+                    'votes_range': {'min': 0, 'max': 10000, 'avg': 100},
+                    'cost_range': {'min': 0, 'max': 5000, 'avg': 500}
+                }
+            }
+
+
 
 if __name__ == "__main__":
     predictor = RatingPredictor()

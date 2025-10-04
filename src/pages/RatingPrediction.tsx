@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { TrendingUp, Loader2 } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { TrendingUp, Loader2, RefreshCw } from 'lucide-react';
 import { Skeleton } from "@/components/ui/skeleton";
 
 interface PredictionResult {
@@ -15,7 +15,25 @@ interface PredictionResult {
   };
 }
 
-// A simple skeleton component for the result display
+interface PredictionOptions {
+  locations: string[];
+  rest_types: string[];
+  cuisines: string[];
+  random_sample: {
+    votes: number;
+    online_order: number;
+    book_table: number;
+    location: string;
+    rest_type: string;
+    cuisines: string;
+    cost: number;
+  };
+  stats: {
+    votes_range: { min: number; max: number; avg: number };
+    cost_range: { min: number; max: number; avg: number };
+  };
+}
+
 const ResultSkeleton = () => (
   <div className="mt-6 p-6 bg-gray-100 rounded-md">
     <Skeleton className="h-6 w-1/3 mb-4" />
@@ -31,25 +49,60 @@ const ResultSkeleton = () => (
 
 function RatingPrediction() {
   const [loading, setLoading] = useState(false);
+  const [optionsLoading, setOptionsLoading] = useState(true);
   const [result, setResult] = useState<PredictionResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [options, setOptions] = useState<PredictionOptions | null>(null);
 
   const [formData, setFormData] = useState({
     votes: 100,
     online_order: 1,
     book_table: 0,
-    location: 'Koramangala 5th Block',
-    rest_type: 'Casual Dining',
-    cuisines: 'North Indian, Chinese',
+    location: '',
+    rest_type: '',
+    cuisines: '',
     cost: 500,
   });
+
+  useEffect(() => {
+    fetchOptions();
+  }, []);
+
+  const fetchOptions = async () => {
+    setOptionsLoading(true);
+    try {
+      const response = await fetch('http://localhost:8000/api/predict-rating/options');
+      if (response.ok) {
+        const data = await response.json();
+        setOptions(data);
+        // Set initial form data from random sample
+        setFormData(data.random_sample);
+      } else {
+        throw new Error('Failed to fetch prediction options.');
+      }
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setOptionsLoading(false);
+    }
+  };
+
+  const loadRandomSample = () => {
+    if (options?.random_sample) {
+      // Fetch new random sample
+      fetchOptions();
+      setResult(null);
+      setSuccess(null);
+      setError(null);
+    }
+  };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value, type } = e.target;
     setFormData(prev => ({
       ...prev,
-      [name]: type === 'checkbox' ? (e.target as HTMLInputElement).checked : value,
+      [name]: type === 'number' ? Number(value) : value,
     }));
   };
 
@@ -61,11 +114,10 @@ function RatingPrediction() {
     setSuccess(null);
 
     try {
-      // Mapping boolean to integer for the backend model
       const payload = {
         ...formData,
-        online_order: formData.online_order ? 1 : 0,
-        book_table: formData.book_table ? 1 : 0,
+        online_order: Number(formData.online_order),
+        book_table: Number(formData.book_table),
         votes: Number(formData.votes),
         cost: Number(formData.cost),
       };
@@ -74,16 +126,11 @@ function RatingPrediction() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          // Assuming you have a way to get the auth token, otherwise this might be 401
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`, 
         },
         body: JSON.stringify(payload),
       });
 
       if (!response.ok) {
-        if (response.status === 401) {
-          throw new Error('Authentication failed. Please log in again.');
-        }
         if (response.status === 422) {
           const errorData = await response.json();
           const detailedMessage = errorData.detail 
@@ -97,23 +144,25 @@ function RatingPrediction() {
       const data = await response.json();
       setResult(data);
       setSuccess('Prediction successful!');
-      // Reset form data after successful prediction
-      setFormData({
-        votes: 100,
-        online_order: 1,
-        book_table: 0,
-        location: 'Koramangala 5th Block',
-        rest_type: 'Casual Dining',
-        cuisines: 'North Indian, Chinese',
-        cost: 500,
-      });
-
-    } catch (err) {
+    } catch (err: any) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
   };
+
+  if (optionsLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+        <div className="bg-white shadow-xl rounded-xl p-8 w-full max-w-2xl">
+          <div className="flex items-center justify-center mb-6">
+            <Loader2 className="w-12 h-12 text-blue-500 animate-spin" />
+          </div>
+          <p className="text-center text-gray-600">Loading prediction options...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
@@ -122,116 +171,150 @@ function RatingPrediction() {
           <TrendingUp className="w-12 h-12 text-blue-500" />
         </div>
         <h2 className="text-3xl font-bold text-center text-gray-800 mb-2">Predict Rating</h2>
-        <p className="text-center text-gray-500 mb-8">
+        <p className="text-center text-gray-500 mb-4">
           Enter restaurant features to predict its aggregate rating.
         </p>
+        
+        <div className="flex justify-center mb-6">
+          <button
+            onClick={loadRandomSample}
+            className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors"
+            disabled={loading}
+          >
+            <RefreshCw className="w-4 h-4" />
+            Load Random Sample
+          </button>
+        </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label htmlFor="votes" className="block text-sm font-medium text-gray-700">
-              Votes
-            </label>
-            <input
-              type="number"
-              id="votes"
-              name="votes"
-              value={formData.votes}
-              onChange={handleChange}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-              required
-            />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label htmlFor="votes" className="block text-sm font-medium text-gray-700">
+                Votes
+              </label>
+              <input
+                type="number"
+                id="votes"
+                name="votes"
+                value={formData.votes}
+                onChange={handleChange}
+                min={options?.stats.votes_range.min || 0}
+                max={options?.stats.votes_range.max || 10000}
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 px-3 py-2 border"
+                required
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Range: {options?.stats.votes_range.min} - {options?.stats.votes_range.max}
+              </p>
+            </div>
+
+            <div>
+              <label htmlFor="cost" className="block text-sm font-medium text-gray-700">
+                Average Cost for Two
+              </label>
+              <input
+                type="number"
+                id="cost"
+                name="cost"
+                value={formData.cost}
+                onChange={handleChange}
+                min={options?.stats.cost_range.min || 0}
+                max={options?.stats.cost_range.max || 10000}
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 px-3 py-2 border"
+                required
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Range: {options?.stats.cost_range.min} - {options?.stats.cost_range.max}
+              </p>
+            </div>
           </div>
 
-          <div>
-            <label htmlFor="online_order" className="block text-sm font-medium text-gray-700">
-              Online Order
-            </label>
-            <select
-              id="online_order"
-              name="online_order"
-              value={formData.online_order.toString()}
-              onChange={handleChange}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-            >
-              <option value="1">Yes</option>
-              <option value="0">No</option>
-            </select>
-          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label htmlFor="online_order" className="block text-sm font-medium text-gray-700">
+                Online Order
+              </label>
+              <select
+                id="online_order"
+                name="online_order"
+                value={formData.online_order.toString()}
+                onChange={handleChange}
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 px-3 py-2 border"
+              >
+                <option value="1">Yes</option>
+                <option value="0">No</option>
+              </select>
+            </div>
 
-          <div>
-            <label htmlFor="book_table" className="block text-sm font-medium text-gray-700">
-              Book Table
-            </label>
-            <select
-              id="book_table"
-              name="book_table"
-              value={formData.book_table.toString()}
-              onChange={handleChange}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-            >
-              <option value="1">Yes</option>
-              <option value="0">No</option>
-            </select>
-          </div>
-
-          <div>
-            <label htmlFor="cost" className="block text-sm font-medium text-gray-700">
-              Average Cost for two
-            </label>
-            <input
-              type="number"
-              id="cost"
-              name="cost"
-              value={formData.cost}
-              onChange={handleChange}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-              required
-            />
+            <div>
+              <label htmlFor="book_table" className="block text-sm font-medium text-gray-700">
+                Book Table
+              </label>
+              <select
+                id="book_table"
+                name="book_table"
+                value={formData.book_table.toString()}
+                onChange={handleChange}
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 px-3 py-2 border"
+              >
+                <option value="1">Yes</option>
+                <option value="0">No</option>
+              </select>
+            </div>
           </div>
 
           <div>
             <label htmlFor="location" className="block text-sm font-medium text-gray-700">
               Location
             </label>
-            <input
-              type="text"
+            <select
               id="location"
               name="location"
               value={formData.location}
               onChange={handleChange}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 px-3 py-2 border"
               required
-            />
+            >
+              {options?.locations.map((loc, index) => (
+                <option key={index} value={loc}>{loc}</option>
+              ))}
+            </select>
           </div>
 
           <div>
             <label htmlFor="rest_type" className="block text-sm font-medium text-gray-700">
               Restaurant Type
             </label>
-            <input
-              type="text"
+            <select
               id="rest_type"
               name="rest_type"
               value={formData.rest_type}
               onChange={handleChange}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 px-3 py-2 border"
               required
-            />
+            >
+              {options?.rest_types.map((type, index) => (
+                <option key={index} value={type}>{type}</option>
+              ))}
+            </select>
           </div>
 
           <div>
             <label htmlFor="cuisines" className="block text-sm font-medium text-gray-700">
               Cuisines
             </label>
-            <input
-              type="text"
+            <select
               id="cuisines"
               name="cuisines"
               value={formData.cuisines}
               onChange={handleChange}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 px-3 py-2 border"
               required
-            />
+            >
+              {options?.cuisines.map((cuisine, index) => (
+                <option key={index} value={cuisine}>{cuisine}</option>
+              ))}
+            </select>
           </div>
 
           <button
