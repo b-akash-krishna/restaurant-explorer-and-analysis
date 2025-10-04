@@ -20,14 +20,43 @@ class LocationAnalyzer:
             self.df['Longitude'] = pd.to_numeric(self.df['Longitude'], errors='coerce')
             self.df['City'] = self.df['City'].fillna('Unknown')
             self.df['Locality'] = self.df['Locality'].fillna('Unknown')
+            
+            # Ensure numeric columns
+            self.df['Aggregate rating'] = pd.to_numeric(self.df['Aggregate rating'], errors='coerce').fillna(0)
+            self.df['Average Cost for two'] = pd.to_numeric(self.df['Average Cost for two'], errors='coerce').fillna(0)
+            
         except FileNotFoundError as e:
             print(f"Error loading data: {e}. Please ensure the file is in the correct location.")
             self.df = None
 
+    def get_map_data(self):
+        """Get location data for map visualization"""
+        if self.df is None:
+            self.load_data()
+            if self.df is None:
+                return []
+
+        locations = []
+        # Filter valid coordinates and limit to 500 for performance
+        valid_df = self.df.dropna(subset=['Latitude', 'Longitude'])
+        
+        for idx, row in valid_df.head(500).iterrows():
+            try:
+                locations.append({
+                    'lat': float(row['Latitude']),
+                    'lng': float(row['Longitude']),
+                    'name': str(row.get('Restaurant Name', 'Unknown')),
+                    'city': str(row.get('City', 'Unknown')),
+                    'rating': float(row.get('Aggregate rating', 0))
+                })
+            except (ValueError, TypeError):
+                continue
+
+        return locations
+
     def get_location_distribution(self):
         """Get distribution of restaurants by location"""
         if self.df is None:
-            # Attempt to load data if it's not already loaded
             self.load_data()
             if self.df is None:
                 return []
@@ -53,12 +82,25 @@ class LocationAnalyzer:
             if self.df is None:
                 return {}
 
-        city_stats = self.df.groupby('City').agg(
-            restaurant_count=('Restaurant Name', 'size'),
-            average_rating=('Aggregate rating', 'mean'),
-            online_order_percentage=('Has Online delivery', lambda x: (x == 'Yes').mean() * 100),
-            table_booking_percentage=('Has Table booking', lambda x: (x == 'Yes').mean() * 100)
-        ).to_dict('index')
+        # Handle Yes/No values
+        def convert_yes_no(x):
+            if pd.isna(x):
+                return 0
+            return 1 if str(x).lower() == 'yes' else 0
+
+        city_stats = {}
+        for city in self.df['City'].unique():
+            if pd.isna(city) or city == 'Unknown':
+                continue
+                
+            city_df = self.df[self.df['City'] == city]
+            
+            city_stats[city] = {
+                'restaurant_count': len(city_df),
+                'average_rating': float(city_df['Aggregate rating'].mean()),
+                'online_order_percentage': float(city_df['Has Online delivery'].apply(convert_yes_no).mean() * 100),
+                'table_booking_percentage': float(city_df['Has Table booking'].apply(convert_yes_no).mean() * 100)
+            }
 
         return city_stats
 
@@ -77,12 +119,16 @@ class LocationAnalyzer:
         for locality in df_filtered['Locality'].value_counts().head(15).index:
             locality_df = df_filtered[df_filtered['Locality'] == locality]
 
+            # Get mode safely
+            city_mode = locality_df['City'].mode()
+            price_mode = locality_df['Price range'].mode()
+
             stats = {
                 'locality': locality,
-                'city': locality_df['City'].mode()[0] if len(locality_df['City'].mode()) > 0 else 'Unknown',
+                'city': city_mode[0] if len(city_mode) > 0 else 'Unknown',
                 'count': int(len(locality_df)),
                 'avg_rating': float(locality_df['Aggregate rating'].mean()),
-                'price_range_mode': int(locality_df['Price range'].mode()[0]) if len(locality_df['Price range'].mode()) > 0 else 0
+                'price_range_mode': int(price_mode[0]) if len(price_mode) > 0 and pd.notna(price_mode[0]) else 2
             }
             locality_stats.append(stats)
 
@@ -95,16 +141,46 @@ class LocationAnalyzer:
             if self.df is None:
                 return {}
 
-        insights = {
-            'total_restaurants': int(len(self.df)),
-            'total_cities': int(self.df['City'].nunique()),
-            'total_localities': int(self.df['Locality'].nunique()),
-            'highest_rated_city': self.df.groupby('City')['Aggregate rating'].mean().idxmax(),
-            'highest_restaurant_density_city': self.df['City'].value_counts().index[0],
-            'avg_rating_overall': float(self.df['Aggregate rating'].mean()),
-            'most_expensive_city': self.df.groupby('City')['Average Cost for two'].mean().idxmax()
-        }
-        return insights
+        try:
+            # Filter out Unknown cities for meaningful insights
+            valid_cities = self.df[self.df['City'] != 'Unknown']
+            
+            if len(valid_cities) == 0:
+                return {
+                    'total_restaurants': len(self.df),
+                    'total_cities': 0,
+                    'total_localities': 0,
+                    'highest_rated_city': 'N/A',
+                    'highest_restaurant_density_city': 'N/A',
+                    'avg_rating_overall': 0,
+                    'most_expensive_city': 'N/A'
+                }
+            
+            city_ratings = valid_cities.groupby('City')['Aggregate rating'].mean()
+            city_counts = valid_cities['City'].value_counts()
+            city_costs = valid_cities.groupby('City')['Average Cost for two'].mean()
+            
+            insights = {
+                'total_restaurants': int(len(self.df)),
+                'total_cities': int(self.df['City'].nunique()),
+                'total_localities': int(self.df['Locality'].nunique()),
+                'highest_rated_city': str(city_ratings.idxmax()) if len(city_ratings) > 0 else 'N/A',
+                'highest_restaurant_density_city': str(city_counts.index[0]) if len(city_counts) > 0 else 'N/A',
+                'avg_rating_overall': float(self.df['Aggregate rating'].mean()),
+                'most_expensive_city': str(city_costs.idxmax()) if len(city_costs) > 0 else 'N/A'
+            }
+            return insights
+        except Exception as e:
+            print(f"Error calculating insights: {e}")
+            return {
+                'total_restaurants': len(self.df),
+                'total_cities': 0,
+                'total_localities': 0,
+                'highest_rated_city': 'N/A',
+                'highest_restaurant_density_city': 'N/A',
+                'avg_rating_overall': 0,
+                'most_expensive_city': 'N/A'
+            }
 
 
 # Example usage (for testing)
@@ -117,3 +193,4 @@ if __name__ == "__main__":
         print("\nCity analysis:", analyzer.analyze_by_city())
         print("\nLocality analysis for New Delhi:", analyzer.analyze_by_locality('New Delhi'))
         print("\nGeneral insights:", analyzer.get_insights())
+        print("\nMap data (first 5):", analyzer.get_map_data()[:5])

@@ -8,6 +8,7 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from typing import List, Optional
 from datetime import timedelta
+import pandas as pd
 
 from fastapi import Depends, FastAPI, HTTPException, status, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -376,6 +377,106 @@ async def get_city_localities(city: str):
         logger.error(f"City localities error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+# Add these endpoints to backend/main.py after the existing location endpoints
+
+@app.get("/api/location-analysis")
+async def get_location_analysis():
+    """Get comprehensive location analysis including insights, cities, and localities"""
+    try:
+        analyzer = get_location_analyzer()
+        
+        # Get insights
+        insights = await asyncio.get_event_loop().run_in_executor(
+            executor,
+            analyzer.get_insights
+        )
+        
+        # Get city analysis
+        city_analysis = await asyncio.get_event_loop().run_in_executor(
+            executor,
+            analyzer.analyze_by_city
+        )
+        
+        # Convert city_analysis dict to list format
+        city_stats = []
+        for city_name, stats in city_analysis.items():
+            try:
+                # Get top cuisine for this city
+                if analyzer.df is not None:
+                    city_df = analyzer.df[analyzer.df['City'] == city_name]
+                    if len(city_df) > 0 and 'Cuisines' in city_df.columns:
+                        cuisines = city_df['Cuisines'].dropna()
+                        if len(cuisines) > 0:
+                            top_cuisine = cuisines.mode()[0] if len(cuisines.mode()) > 0 else 'Unknown'
+                        else:
+                            top_cuisine = 'Unknown'
+                    else:
+                        top_cuisine = 'Unknown'
+                    
+                    # Get average cost
+                    avg_cost = city_df['Average Cost for two'].mean() if 'Average Cost for two' in city_df.columns else 0
+                else:
+                    top_cuisine = 'Unknown'
+                    avg_cost = 0
+                
+                city_stats.append({
+                    'city': city_name,
+                    'count': int(stats['restaurant_count']),
+                    'avg_rating': float(stats['average_rating']),
+                    'avg_cost': float(avg_cost) if pd.notna(avg_cost) else 0,
+                    'top_cuisine': str(top_cuisine).split(',')[0].strip()
+                })
+            except Exception as e:
+                logger.error(f"Error processing city {city_name}: {e}")
+                continue
+        
+        # Sort by restaurant count
+        city_stats.sort(key=lambda x: x['count'], reverse=True)
+        city_stats = city_stats[:15]  # Top 15 cities
+        
+        # Get locality analysis for top city
+        if city_stats:
+            top_city = city_stats[0]['city']
+        else:
+            top_city = 'Bangalore'
+            
+        locality_stats = await asyncio.get_event_loop().run_in_executor(
+            executor,
+            analyzer.analyze_by_locality,
+            top_city
+        )
+        
+        return {
+            "success": True,
+            "insights": insights,
+            "city_stats": city_stats,
+            "locality_stats": locality_stats
+        }
+    except Exception as e:
+        logger.error(f"Location analysis error: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/location-analysis/localities/{city}")
+async def get_city_localities_detailed(city: str):
+    """Get detailed locality analysis for a specific city"""
+    try:
+        analyzer = get_location_analyzer()
+        localities = await asyncio.get_event_loop().run_in_executor(
+            executor,
+            analyzer.analyze_by_locality,
+            city
+        )
+        return {
+            "success": True,
+            "city": city,
+            "locality_count": len(localities),
+            "localities": localities
+        }
+    except Exception as e:
+        logger.error(f"City localities error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/admin/protected_data")
 async def get_protected_data(current_user: DBUser = Depends(get_current_active_admin_user)):
@@ -483,6 +584,7 @@ async def get_classification_options():
         classifier = get_cuisine_classifier()
         
         # Load data to get options
+        import pandas as pd  # Ensure pandas is imported
         df = pd.read_csv('backend/data/Dataset.csv')
         
         cities = sorted(df['City'].dropna().unique().tolist())[:50]
@@ -495,15 +597,26 @@ async def get_classification_options():
             '4': 'Very Expensive (₹₹₹₹)'
         }
         
-        # Get a random sample
-        sample = df.sample(1).iloc[0]
-        random_sample = {
-            'city': str(sample.get('City', cities[0])),
-            'has_table_booking': 1 if str(sample.get('Has Table booking', 'No')).lower() == 'yes' else 0,
-            'has_online_delivery': 1 if str(sample.get('Has Online delivery', 'Yes')).lower() == 'yes' else 0,
-            'price_range': int(sample.get('Price range', 2)),
-            'votes': int(sample.get('Votes', 100))
-        }
+        # Get a random sample safely
+        if len(df) > 0:
+            sample = df.sample(1).iloc[0]
+            random_sample = {
+                'city': str(sample.get('City', cities[0] if cities else 'Bangalore')),
+                'has_table_booking': 1 if str(sample.get('Has Table booking', 'No')).lower() == 'yes' else 0,
+                'has_online_delivery': 1 if str(sample.get('Has Online delivery', 'Yes')).lower() == 'yes' else 0,
+                'price_range': int(sample.get('Price range', 2)) if pd.notna(sample.get('Price range')) else 2,
+                'votes': int(sample.get('Votes', 100)) if pd.notna(sample.get('Votes')) else 100
+            }
+        else:
+            random_sample = {
+                'city': cities[0] if cities else 'Bangalore',
+                'has_table_booking': 1,
+                'has_online_delivery': 1,
+                'price_range': 2,
+                'votes': 100
+            }
+        
+        votes_series = pd.to_numeric(df['Votes'], errors='coerce').dropna()
         
         return {
             "success": True,
@@ -511,13 +624,15 @@ async def get_classification_options():
             "price_ranges": price_ranges,
             "random_sample": random_sample,
             "votes_range": {
-                "min": int(df['Votes'].min()),
-                "max": int(df['Votes'].max()),
-                "avg": int(df['Votes'].mean())
+                "min": int(votes_series.min()) if len(votes_series) > 0 else 0,
+                "max": int(votes_series.max()) if len(votes_series) > 0 else 10000,
+                "avg": int(votes_series.mean()) if len(votes_series) > 0 else 100
             }
         }
     except Exception as e:
         logger.error(f"Error fetching classification options: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 
