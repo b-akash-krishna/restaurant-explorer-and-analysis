@@ -3,17 +3,17 @@ import numpy as np
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.preprocessing import LabelEncoder
-from sklearn.metrics import mean_squared_error, r2_score
+from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
 import joblib
 import os
 import optuna
 import redis
 import json
 import logging
+import matplotlib.pyplot as plt
 
 logger = logging.getLogger(__name__)
 
-# Corrected path to point to the backend directory
 BASE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
 DATA_PATH = os.path.join(BASE_DIR, 'data', 'Dataset.csv')
 
@@ -26,8 +26,11 @@ class RatingPredictor:
         self.model_file = os.path.join(self.model_dir, 'rating_predictor.pkl')
         self.encoders_file = os.path.join(self.model_dir, 'rating_encoders.pkl')
         self.features_file = os.path.join(self.model_dir, 'rating_features.pkl')
-
+        self.feature_importance_file = os.path.join(self.model_dir, 'feature_importance.pkl')
+        
         self.redis_client = self._connect_to_redis()
+        self.feature_importance = {}
+        self.evaluation_metrics = {}
 
     def _connect_to_redis(self):
         """Attempts to connect to Redis and returns the client object."""
@@ -48,10 +51,8 @@ class RatingPredictor:
     def preprocess_data(self, df, fit_encoders=True):
         """Preprocess restaurant data for rating prediction"""
         df = df.copy()
-
         df = df.dropna(subset=['Aggregate rating'])
 
-        # Only encode truly categorical columns (after numeric conversion in train())
         categorical_cols = ['City', 'Cuisines', 'Rest type']
 
         for col in categorical_cols:
@@ -86,7 +87,7 @@ class RatingPredictor:
         return X, y
 
     def train(self, data_path=DATA_PATH, n_estimators=100, max_depth=10, refit_encoders=True):
-        """Trains the RandomForestRegressor model."""
+        """Trains the RandomForestRegressor model with comprehensive evaluation."""
         try:
             df = pd.read_csv(data_path)
             
@@ -103,7 +104,6 @@ class RatingPredictor:
                 df['Has Online delivery'] = df['Has Online delivery'].str.lower().map({'yes': 1, 'no': 0}).fillna(0)
 
             X, y = self.preprocess_data(df, fit_encoders=refit_encoders)
-
             X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
             self.model = RandomForestRegressor(
@@ -114,23 +114,82 @@ class RatingPredictor:
             )
             self.model.fit(X_train, y_train)
 
-            y_pred = self.model.predict(X_test)
-            mse = mean_squared_error(y_test, y_pred)
-            r2 = r2_score(y_test, y_pred)
+            # Predictions
+            y_pred_train = self.model.predict(X_train)
+            y_pred_test = self.model.predict(X_test)
             
-            print(f"Model trained with n_estimators={n_estimators}, max_depth={max_depth}")
-            print(f"Mean Squared Error (MSE): {mse}")
-            print(f"R-squared (R2): {r2}")
+            # Calculate comprehensive metrics
+            train_metrics = {
+                'mse': mean_squared_error(y_train, y_pred_train),
+                'rmse': np.sqrt(mean_squared_error(y_train, y_pred_train)),
+                'mae': mean_absolute_error(y_train, y_pred_train),
+                'r2': r2_score(y_train, y_pred_train)
+            }
+            
+            test_metrics = {
+                'mse': mean_squared_error(y_test, y_pred_test),
+                'rmse': np.sqrt(mean_squared_error(y_test, y_pred_test)),
+                'mae': mean_absolute_error(y_test, y_pred_test),
+                'r2': r2_score(y_test, y_pred_test)
+            }
+            
+            self.evaluation_metrics = {
+                'train': train_metrics,
+                'test': test_metrics
+            }
+            
+            # Feature importance analysis
+            self.feature_importance = dict(zip(
+                self.feature_columns,
+                self.model.feature_importances_
+            ))
+            
+            # Sort by importance
+            self.feature_importance = dict(
+                sorted(self.feature_importance.items(), 
+                       key=lambda x: x[-1], 
+                       reverse=True)
+            )
+            
+            print(f"\n{'='*60}")
+            print(f"Model Training Complete")
+            print(f"{'='*60}")
+            print(f"\nModel Configuration:")
+            print(f"  n_estimators: {n_estimators}")
+            print(f"  max_depth: {max_depth}")
+            
+            print(f"\nTraining Set Metrics:")
+            for metric, value in train_metrics.items():
+                print(f"  {metric.upper()}: {value:.4f}")
+            
+            print(f"\nTest Set Metrics:")
+            for metric, value in test_metrics.items():
+                print(f"  {metric.upper()}: {value:.4f}")
+            
+            print(f"\nFeature Importance (Top 5):")
+            for i, (feature, importance) in enumerate(list(self.feature_importance.items())[:5], 1):
+                print(f"  {i}. {feature}: {importance:.4f}")
+            
+            print(f"\n{'='*60}\n")
 
+            # Save everything
             os.makedirs(self.model_dir, exist_ok=True)
             joblib.dump(self.model, self.model_file)
             joblib.dump(self.encoders, self.encoders_file)
             joblib.dump(self.feature_columns, self.features_file)
+            joblib.dump(self.feature_importance, self.feature_importance_file)
+            joblib.dump(self.evaluation_metrics, os.path.join(self.model_dir, 'evaluation_metrics.pkl'))
 
-            return {"mse": mse, "r2": r2}
+            return {
+                'train_metrics': train_metrics,
+                'test_metrics': test_metrics,
+                'feature_importance': self.feature_importance
+            }
 
         except Exception as e:
             print(f"An error occurred during training: {e}")
+            import traceback
+            traceback.print_exc()
             return {"error": str(e)}
 
     def load_model(self):
@@ -139,10 +198,40 @@ class RatingPredictor:
             self.model = joblib.load(self.model_file)
             self.encoders = joblib.load(self.encoders_file)
             self.feature_columns = joblib.load(self.features_file)
+            
+            # Try to load feature importance if available
+            try:
+                self.feature_importance = joblib.load(self.feature_importance_file)
+            except FileNotFoundError:
+                self.feature_importance = {}
+            
+            # Try to load evaluation metrics if available
+            try:
+                self.evaluation_metrics = joblib.load(os.path.join(self.model_dir, 'evaluation_metrics.pkl'))
+            except FileNotFoundError:
+                self.evaluation_metrics = {}
+            
             print("Pre-trained model, encoders, and features loaded successfully.")
         except FileNotFoundError as e:
             print(f"Error loading model files: {e}. Please ensure you have run the training script first.")
             self.model = None
+
+    def get_feature_importance(self):
+        """Get feature importance data"""
+        if not self.feature_importance and self.model:
+            self.feature_importance = dict(zip(
+                self.feature_columns,
+                self.model.feature_importances_
+            ))
+        return self.feature_importance
+
+    def get_model_interpretation(self):
+        """Get comprehensive model interpretation data"""
+        return {
+            'feature_importance': self.get_feature_importance(),
+            'evaluation_metrics': self.evaluation_metrics,
+            'most_influential_features': list(self.feature_importance.keys())[:3] if self.feature_importance else []
+        }
 
     def _create_cache_key(self, data: dict) -> str:
         """Generates a consistent cache key from input data."""
@@ -150,9 +239,7 @@ class RatingPredictor:
         return json.dumps(sorted_items)
 
     def predict_rating(self, data: dict):
-        """
-        Predicts the rating for a given restaurant using caching.
-        """
+        """Predicts the rating for a given restaurant using caching."""
         if self.redis_client:
             cache_key = self._create_cache_key(data)
             cached_result = self.redis_client.get(cache_key)
@@ -167,7 +254,6 @@ class RatingPredictor:
 
         df = pd.DataFrame([data])
         
-        # Only encode the categorical columns that were encoded during training
         for col in ['City', 'Cuisines', 'Rest type']:
             if col in df.columns and col in self.encoders:
                 le = self.encoders[col]
@@ -181,14 +267,11 @@ class RatingPredictor:
             elif col not in df.columns:
                 df[col] = 0
 
-        # Ensure all required columns exist
         for col in self.feature_columns:
             if col not in df.columns:
                 df[col] = 0
 
-        # Use DataFrame with proper column names instead of .values
         input_data = df[self.feature_columns]
-        
         prediction = self.model.predict(input_data)[0]
         prediction = max(0.0, min(5.0, float(prediction)))
 
@@ -214,8 +297,7 @@ class RatingPredictor:
             df['Has Table booking'] = df['Has Table booking'].str.lower().map({'yes': 1, 'no': 0}).fillna(0)
             df['Has Online delivery'] = df['Has Online delivery'].str.lower().map({'yes': 1, 'no': 0}).fillna(0)
 
-            X, y = self.preprocess_data(df, refit_encoders=True)
-
+            X, y = self.preprocess_data(df, fit_encoders=True)
             X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
             model = RandomForestRegressor(
@@ -267,10 +349,6 @@ class RatingPredictor:
         try:
             df = pd.read_csv(DATA_PATH)
             
-            # Print available columns for debugging
-            print(f"Available columns: {df.columns.tolist()}")
-            
-            # Rename columns if they exist
             rename_map = {}
             if 'Has Table booking' in df.columns:
                 rename_map['Has Table booking'] = 'Has Table booking'
@@ -283,13 +361,11 @@ class RatingPredictor:
             
             df.rename(columns=rename_map, inplace=True)
             
-            # Convert Yes/No to 1/0
             if 'Has Table booking' in df.columns:
                 df['Has Table booking'] = df['Has Table booking'].astype(str).str.lower().map({'yes': 1, 'no': 0}).fillna(0)
             if 'Has Online delivery' in df.columns:
                 df['Has Online delivery'] = df['Has Online delivery'].astype(str).str.lower().map({'yes': 1, 'no': 0}).fillna(0)
             
-            # Get unique values with fallbacks
             locations = []
             if 'City' in df.columns:
                 locations = sorted(df['City'].dropna().unique().tolist())[:100]
@@ -304,7 +380,6 @@ class RatingPredictor:
                     cuisines.extend([c.strip() for c in str(cuisine_str).split(',')])
                 cuisines = sorted(list(set(cuisines)))[:100]
             
-            # Get a random sample with safe fallbacks
             sample_row = df.sample(1).iloc[0]
             
             random_sample = {
@@ -317,7 +392,6 @@ class RatingPredictor:
                 'cost': int(sample_row.get('Cost', 500)) if pd.notna(sample_row.get('Cost')) else 500
             }
             
-            # Get statistics with safe fallbacks
             stats = {
                 'votes_range': {
                     'min': int(df['Votes'].min()) if 'Votes' in df.columns else 0,
@@ -331,7 +405,6 @@ class RatingPredictor:
                 }
             }
             
-            # Ensure we have at least some data
             if not locations:
                 locations = ['Unknown']
             if not rest_types:
@@ -351,7 +424,6 @@ class RatingPredictor:
             import traceback
             print(f"Error loading prediction options: {e}")
             traceback.print_exc()
-            # Return safe defaults
             return {
                 'locations': ['Bangalore', 'Delhi', 'Mumbai'],
                 'rest_types': ['Casual Dining', 'Quick Bites', 'Cafe'],
@@ -372,7 +444,6 @@ class RatingPredictor:
             }
 
 
-
 if __name__ == "__main__":
     predictor = RatingPredictor()
     
@@ -380,26 +451,7 @@ if __name__ == "__main__":
         print(f"Data file not found at: {DATA_PATH}")
         exit(1)
 
-    # --- Option 2: Tune hyperparameters and retrain ---
-    results = predictor.tune_hyperparameters(n_trials=20, data_path=DATA_PATH)
-    print("\nHyperparameter Tuning Results:")
+    # Train with feature importance analysis
+    results = predictor.train(data_path=DATA_PATH)
+    print("\nTraining Results:")
     print(results)
-    
-    # --- Example prediction ---
-    predictor.load_model()
-    
-    new_data = {
-        'online_order': 1,
-        'book_table': 1,
-        'votes': 100,
-        'location': 'Koramangala 5th Block',
-        'rest_type': 'Casual Dining',
-        'cuisines': 'North Indian, Chinese',
-        'cost': 800
-    }
-    
-    try:
-        predicted_rating = predictor.predict_rating(new_data)
-        print(f"\nPredicted rating for the example data: {predicted_rating:.2f}")
-    except RuntimeError as e:
-        print(e)
