@@ -133,6 +133,9 @@ class RecommendationRequest(BaseModel):
     location: str
     cuisine: str
     count: int = 5
+    price_range: Optional[int] = None
+    table_booking: Optional[bool] = None
+    online_delivery: Optional[bool] = None
 
 
 # --- ASYNC EXECUTOR SETUP ---
@@ -313,16 +316,22 @@ async def predict_rating(data: RatingPredictionRequest, request: Request):
 @app.post("/api/recommend-restaurants")
 @limiter.limit("5/minute")
 async def recommend_restaurants(data: RecommendationRequest, request: Request):
-    # Same changes as above
     try:
         recommender = get_restaurant_recommender()
+        
+        price_range = getattr(data, 'price_range', None)
+        table_booking = getattr(data, 'table_booking', None)
+        online_delivery = getattr(data, 'online_delivery', None)
+        
         recommendations = await asyncio.get_event_loop().run_in_executor(
             executor,
             recommender.recommend,
-            data.cuisine,      # Changed from request.cuisine
-            data.location,     # Changed from request.location
-            None,
-            data.count,        # Changed from request.count
+            data.cuisine,
+            data.location,
+            price_range,
+            table_booking,
+            online_delivery,
+            data.count,
         )
         return {"success": True, "recommendations": recommendations}
     except Exception as e:
