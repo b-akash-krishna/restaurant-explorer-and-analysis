@@ -863,3 +863,57 @@ async def get_task_completion_status():
             "testing": "✅ Comprehensive test suite"
         }
     }
+
+# Add this endpoint after the existing /api/predict-rating/model-interpretation endpoint
+
+@app.get("/api/predict-rating/model-insights")
+async def get_model_insights():
+    """Get comprehensive model insights including metrics and feature importance for visualization"""
+    try:
+        predictor = get_rating_predictor()
+        
+        # Load model if not loaded
+        if not predictor.model:
+            predictor.load_model()
+        
+        # Get feature importance
+        feature_importance = await asyncio.get_event_loop().run_in_executor(
+            executor,
+            predictor.get_feature_importance
+        )
+        
+        # Format feature importance for visualization
+        feature_data = [
+            {"feature": k, "importance": float(v)} 
+            for k, v in feature_importance.items()
+        ]
+        
+        # Get evaluation metrics
+        metrics = predictor.evaluation_metrics if predictor.evaluation_metrics else {
+            'train': {'r2': 0, 'rmse': 0, 'mae': 0, 'mse': 0},
+            'test': {'r2': 0, 'rmse': 0, 'mae': 0, 'mse': 0}
+        }
+        
+        # Calculate accuracy percentage (R² * 100)
+        train_accuracy = metrics['train']['r2'] * 100 if 'train' in metrics else 0
+        test_accuracy = metrics['test']['r2'] * 100 if 'test' in metrics else 0
+        
+        return {
+            "success": True,
+            "metrics": {
+                "train_r2": float(metrics['train']['r2']) if 'train' in metrics else 0,
+                "test_r2": float(metrics['test']['r2']) if 'test' in metrics else 0,
+                "train_rmse": float(metrics['train']['rmse']) if 'train' in metrics else 0,
+                "test_rmse": float(metrics['test']['rmse']) if 'test' in metrics else 0,
+                "train_mae": float(metrics['train']['mae']) if 'train' in metrics else 0,
+                "test_mae": float(metrics['test']['mae']) if 'test' in metrics else 0,
+                "train_accuracy": float(train_accuracy),
+                "test_accuracy": float(test_accuracy)
+            },
+            "feature_importance": feature_data
+        }
+    except Exception as e:
+        logger.error(f"Error fetching model insights: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
