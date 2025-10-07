@@ -103,7 +103,7 @@ const BarChart = ({ data, title }: { data: Array<{ label: string; value: number 
   const maxValue = Math.max(...data.map(d => d.value));
   
   return (
-    <div className="bg-white p-4 rounded-lg border border-gray-200">
+    <div className="bg-white/95 backdrop-blur-sm p-4 rounded-lg border border-gray-200 shadow-sm">
       <h4 className="text-sm font-semibold text-gray-700 mb-4">{title}</h4>
       <div className="space-y-3">
         {data.map((item, idx) => (
@@ -139,7 +139,7 @@ const FeatureImportanceChart = ({ data }: { data: Array<{ feature: string; impor
   ];
 
   return (
-    <div className="bg-white p-4 rounded-lg border border-gray-200">
+    <div className="bg-white/95 backdrop-blur-sm p-4 rounded-lg border border-gray-200 shadow-sm">
       <h4 className="text-sm font-semibold text-gray-700 mb-4 flex items-center gap-2">
         <Award className="w-4 h-4" />
         Feature Importance
@@ -301,8 +301,8 @@ function RatingPrediction() {
 
   if (optionsLoading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-        <div className="bg-white shadow-xl rounded-xl p-8 w-full max-w-2xl">
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900 flex items-center justify-center p-4">
+        <div className="bg-white/95 backdrop-blur-md shadow-2xl rounded-2xl p-8 w-full max-w-2xl border border-blue-200">
           <div className="flex items-center justify-center mb-6">
             <Loader2 className="w-12 h-12 text-blue-500 animate-spin" />
           </div>
@@ -313,22 +313,37 @@ function RatingPrediction() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-4">
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="bg-white shadow-xl rounded-xl p-8 mb-6">
-          <div className="flex items-center justify-center mb-6">
-            <TrendingUp className="w-12 h-12 text-blue-500" />
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
+      {/* Hero Header */}
+      <div 
+        className="relative bg-cover bg-center py-16 mb-8"
+        style={{
+          backgroundImage: "url('https://images.unsplash.com/photo-1559339352-11d035aa65de?w=1600&h=400&fit=crop')",
+        }}
+      >
+        <div className="absolute inset-0 bg-gradient-to-r from-blue-900/90 via-blue-800/85 to-purple-900/90"></div>
+        <div className="relative max-w-7xl mx-auto px-4">
+          <div className="flex items-center justify-center mb-4">
+            <div className="bg-white/20 backdrop-blur-md p-4 rounded-2xl">
+              <TrendingUp className="w-12 h-12 text-white" />
+            </div>
           </div>
-          <h2 className="text-3xl font-bold text-center text-gray-800 mb-2">Predict Rating</h2>
-          <p className="text-center text-gray-500 mb-4">
-            Enter restaurant features to predict its aggregate rating.
+          <h1 className="text-4xl md:text-5xl font-bold text-center text-white mb-3 drop-shadow-lg">
+            Restaurant Rating Prediction
+          </h1>
+          <p className="text-center text-blue-100 text-lg max-w-2xl mx-auto drop-shadow-md">
+            Leverage machine learning to predict restaurant ratings based on key features and attributes
           </p>
-          
-          <div className="flex justify-center gap-4 mb-6">
+        </div>
+      </div>
+
+      <div className="max-w-7xl mx-auto px-4 pb-8">
+        {/* Control Panel */}
+        <div className="bg-white/95 backdrop-blur-sm shadow-xl rounded-2xl p-6 mb-6 border border-blue-100">
+          <div className="flex justify-center gap-4">
             <button
               onClick={loadRandomSample}
-              className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors"
+              className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-gray-100 to-gray-200 hover:from-gray-200 hover:to-gray-300 text-gray-700 rounded-xl transition-all duration-300 font-medium shadow-md hover:shadow-lg transform hover:-translate-y-0.5"
               disabled={loading}
             >
               <RefreshCw className="w-4 h-4" />
@@ -336,7 +351,7 @@ function RatingPrediction() {
             </button>
             <button
               onClick={() => setShowInsights(!showInsights)}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg transition-colors"
+              className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white rounded-xl transition-all duration-300 font-medium shadow-md hover:shadow-lg transform hover:-translate-y-0.5"
             >
               <BarChart3 className="w-4 h-4" />
               {showInsights ? 'Hide' : 'Show'} Model Insights
@@ -346,18 +361,18 @@ function RatingPrediction() {
 
         {/* Model Insights Section */}
         {showInsights && insights && !insightsLoading && (
-          <div className="bg-white shadow-xl rounded-xl p-8 mb-6">
-            <h3 className="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-2">
-              <BarChart3 className="w-6 h-6 text-blue-500" />
+          <div className="bg-white/95 backdrop-blur-sm shadow-xl rounded-2xl p-8 mb-6 border border-blue-100">
+            <h3 className="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-2">
+              <BarChart3 className="w-6 h-6 text-blue-600" />
               Model Performance Insights
             </h3>
             
             {/* Accuracy Gauges */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
-              <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-6 rounded-xl">
+              <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-6 rounded-2xl shadow-inner">
                 <GaugeChart value={insights.metrics.train_accuracy} label="Training Accuracy" />
               </div>
-              <div className="bg-gradient-to-br from-green-50 to-green-100 p-6 rounded-xl">
+              <div className="bg-gradient-to-br from-green-50 to-green-100 p-6 rounded-2xl shadow-inner">
                 <GaugeChart value={insights.metrics.test_accuracy} label="Test Accuracy" />
               </div>
             </div>
@@ -386,7 +401,7 @@ function RatingPrediction() {
         )}
 
         {insightsLoading && showInsights && (
-          <div className="bg-white shadow-xl rounded-xl p-8 mb-6">
+          <div className="bg-white/95 backdrop-blur-sm shadow-xl rounded-2xl p-8 mb-6 border border-blue-100">
             <Skeleton className="h-8 w-64 mb-6" />
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
               <Skeleton className="h-48" />
@@ -396,12 +411,12 @@ function RatingPrediction() {
         )}
 
         {/* Prediction Form */}
-        <div className="bg-white shadow-xl rounded-xl p-8">
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="bg-white/95 backdrop-blur-sm shadow-xl rounded-2xl p-8 border border-blue-100">
+          <form onSubmit={handleSubmit} className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
-                <label htmlFor="votes" className="block text-sm font-medium text-gray-700">
-                  Votes
+                <label htmlFor="votes" className="block text-sm font-semibold text-gray-700 mb-2">
+                  Number of Votes
                 </label>
                 <input
                   type="number"
@@ -411,16 +426,16 @@ function RatingPrediction() {
                   onChange={handleChange}
                   min={options?.stats.votes_range.min || 0}
                   max={options?.stats.votes_range.max || 10000}
-                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 px-3 py-2 border"
+                  className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-100 transition-all duration-200"
                   required
                 />
-                <p className="text-xs text-gray-500 mt-1">
+                <p className="text-xs text-gray-500 mt-2">
                   Range: {options?.stats.votes_range.min} - {options?.stats.votes_range.max}
                 </p>
               </div>
 
               <div>
-                <label htmlFor="cost" className="block text-sm font-medium text-gray-700">
+                <label htmlFor="cost" className="block text-sm font-semibold text-gray-700 mb-2">
                   Average Cost for Two
                 </label>
                 <input
@@ -431,26 +446,26 @@ function RatingPrediction() {
                   onChange={handleChange}
                   min={options?.stats.cost_range.min || 0}
                   max={options?.stats.cost_range.max || 10000}
-                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 px-3 py-2 border"
+                  className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-100 transition-all duration-200"
                   required
                 />
-                <p className="text-xs text-gray-500 mt-1">
+                <p className="text-xs text-gray-500 mt-2">
                   Range: {options?.stats.cost_range.min} - {options?.stats.cost_range.max}
                 </p>
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
-                <label htmlFor="online_order" className="block text-sm font-medium text-gray-700">
-                  Online Order
+                <label htmlFor="online_order" className="block text-sm font-semibold text-gray-700 mb-2">
+                  Online Order Available
                 </label>
                 <select
                   id="online_order"
                   name="online_order"
                   value={formData.online_order.toString()}
                   onChange={handleChange}
-                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 px-3 py-2 border"
+                  className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-100 transition-all duration-200"
                 >
                   <option value="1">Yes</option>
                   <option value="0">No</option>
@@ -458,15 +473,15 @@ function RatingPrediction() {
               </div>
 
               <div>
-                <label htmlFor="book_table" className="block text-sm font-medium text-gray-700">
-                  Book Table
+                <label htmlFor="book_table" className="block text-sm font-semibold text-gray-700 mb-2">
+                  Table Booking Available
                 </label>
                 <select
                   id="book_table"
                   name="book_table"
                   value={formData.book_table.toString()}
                   onChange={handleChange}
-                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 px-3 py-2 border"
+                  className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-100 transition-all duration-200"
                 >
                   <option value="1">Yes</option>
                   <option value="0">No</option>
@@ -475,7 +490,7 @@ function RatingPrediction() {
             </div>
 
             <div>
-              <label htmlFor="location" className="block text-sm font-medium text-gray-700">
+              <label htmlFor="location" className="block text-sm font-semibold text-gray-700 mb-2">
                 Location
               </label>
               <select
@@ -483,7 +498,7 @@ function RatingPrediction() {
                 name="location"
                 value={formData.location}
                 onChange={handleChange}
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 px-3 py-2 border"
+                className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-100 transition-all duration-200"
                 required
               >
                 {options?.locations.map((loc, index) => (
@@ -493,7 +508,7 @@ function RatingPrediction() {
             </div>
 
             <div>
-              <label htmlFor="rest_type" className="block text-sm font-medium text-gray-700">
+              <label htmlFor="rest_type" className="block text-sm font-semibold text-gray-700 mb-2">
                 Restaurant Type
               </label>
               <select
@@ -501,7 +516,7 @@ function RatingPrediction() {
                 name="rest_type"
                 value={formData.rest_type}
                 onChange={handleChange}
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 px-3 py-2 border"
+                className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-100 transition-all duration-200"
                 required
               >
                 {options?.rest_types.map((type, index) => (
@@ -511,7 +526,7 @@ function RatingPrediction() {
             </div>
 
             <div>
-              <label htmlFor="cuisines" className="block text-sm font-medium text-gray-700">
+              <label htmlFor="cuisines" className="block text-sm font-semibold text-gray-700 mb-2">
                 Cuisines
               </label>
               <select
@@ -519,7 +534,7 @@ function RatingPrediction() {
                 name="cuisines"
                 value={formData.cuisines}
                 onChange={handleChange}
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 px-3 py-2 border"
+                className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-100 transition-all duration-200"
                 required
               >
                 {options?.cuisines.map((cuisine, index) => (
@@ -530,15 +545,15 @@ function RatingPrediction() {
 
             <button
               type="submit"
-              className={`w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white ${
-                loading ? 'bg-blue-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500'
+              className={`w-full flex justify-center items-center py-4 px-6 rounded-xl shadow-lg text-base font-semibold text-white transition-all duration-300 transform hover:-translate-y-1 ${
+                loading ? 'bg-blue-400 cursor-not-allowed' : 'bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 hover:shadow-xl'
               }`}
               disabled={loading}
             >
               {loading ? (
                 <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Processing...
+                  <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                  Processing Prediction...
                 </>
               ) : (
                 'Predict Rating'
@@ -547,7 +562,7 @@ function RatingPrediction() {
           </form>
 
           {error && (
-            <div className="mt-6 p-4 bg-red-50 border border-red-200 rounded-md">
+            <div className="mt-6 p-4 bg-red-50 border-2 border-red-200 rounded-xl">
               <p className="text-red-600 text-sm">
                 <span className="font-bold">Error:</span> {error}
               </p>
@@ -555,7 +570,7 @@ function RatingPrediction() {
           )}
 
           {success && (
-            <div className="mt-6 p-4 bg-green-50 border border-green-200 rounded-md">
+            <div className="mt-6 p-4 bg-green-50 border-2 border-green-200 rounded-xl">
               <p className="text-green-600 text-sm">
                 <span className="font-bold">Success:</span> {success}
               </p>
@@ -565,25 +580,30 @@ function RatingPrediction() {
           {loading && !result && <ResultSkeleton />}
 
           {!loading && result && (
-            <div className="mt-6 p-6 bg-blue-50 border border-blue-200 rounded-md">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Prediction Result</h3>
-              <div className="flex items-center justify-center mb-4">
-                <div className="text-center">
-                  <div className="text-5xl font-bold text-blue-600">{result.predicted_rating.toFixed(2)}</div>
-                  <div className="text-sm text-gray-600 mt-2">Predicted Rating (out of 5)</div>
+            <div className="mt-6 p-8 bg-gradient-to-br from-blue-50 to-purple-50 border-2 border-blue-200 rounded-2xl shadow-lg">
+              <h3 className="text-xl font-bold text-gray-900 mb-6 flex items-center gap-2">
+                <TrendingUp className="w-6 h-6 text-blue-600" />
+                Prediction Result
+              </h3>
+              <div className="flex items-center justify-center mb-6">
+                <div className="text-center bg-white/80 backdrop-blur-sm p-8 rounded-2xl shadow-md">
+                  <div className="text-6xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent mb-2">
+                    {result.predicted_rating.toFixed(2)}
+                  </div>
+                  <div className="text-sm text-gray-600 font-medium">Predicted Rating (out of 5)</div>
                 </div>
               </div>
-              <div className="mt-4 pt-4 border-t border-blue-200">
-                <div className="text-sm text-gray-600">
-                  <span className="font-semibold">Features Used:</span>
-                  <ul className="list-disc list-inside mt-2 space-y-1">
-                    <li>Votes: {result.features_used.votes}</li>
-                    <li>Online Order: {result.features_used.online_order ? 'Yes' : 'No'}</li>
-                    <li>Book Table: {result.features_used.book_table ? 'Yes' : 'No'}</li>
-                    <li>Location: {result.features_used.location}</li>
-                    <li>Restaurant Type: {result.features_used.rest_type}</li>
-                    <li>Cuisines: {result.features_used.cuisines}</li>
-                    <li>Average Cost: {result.features_used.cost}</li>
+              <div className="mt-6 pt-6 border-t-2 border-blue-200">
+                <div className="text-sm text-gray-700 bg-white/60 backdrop-blur-sm p-4 rounded-xl">
+                  <span className="font-bold text-gray-900">Features Used:</span>
+                  <ul className="list-disc list-inside mt-3 space-y-2">
+                    <li>Votes: <span className="font-semibold">{result.features_used.votes}</span></li>
+                    <li>Online Order: <span className="font-semibold">{result.features_used.online_order ? 'Yes' : 'No'}</span></li>
+                    <li>Book Table: <span className="font-semibold">{result.features_used.book_table ? 'Yes' : 'No'}</span></li>
+                    <li>Location: <span className="font-semibold">{result.features_used.location}</span></li>
+                    <li>Restaurant Type: <span className="font-semibold">{result.features_used.rest_type}</span></li>
+                    <li>Cuisines: <span className="font-semibold">{result.features_used.cuisines}</span></li>
+                    <li>Average Cost: <span className="font-semibold">₹{result.features_used.cost}</span></li>
                   </ul>
                 </div>
               </div>
