@@ -422,7 +422,7 @@ function CuisineClassification() {
           )}
         </div>
 
-        <div className="bg-white shadow-lg rounded-xl p-6">
+        {/* <div className="bg-white shadow-lg rounded-xl p-6">
           <h3 className="text-xl font-bold text-gray-900 mb-4">About This Task</h3>
           <div className="prose prose-sm max-w-none text-gray-600">
             <p className="mb-3">
@@ -448,9 +448,9 @@ function CuisineClassification() {
                   <li>Class imbalance identification</li>
                 </ul>
               </div>
-            </div>
-          </div>
-        </div>
+            </div> */}
+          {/* </div> */}
+        {/* </div> */}
       </div>
     </div>
   );
