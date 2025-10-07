@@ -407,6 +407,89 @@ class CuisineClassifier:
             print(f"Error loading model files: {e}. Please ensure you have run the training script first.")
             self.model = None
 
+    # Add this method to the CuisineClassifier class in cuisine_classification.py
+
+    def get_classification_options(self):
+        """Get unique values for dropdown options and a random sample"""
+        try:
+            df = pd.read_csv(DATA_PATH)
+            
+            # Rename columns
+            df.rename(columns={
+                'Has Table booking': 'Has Table booking',
+                'Has Online delivery': 'Has Online delivery',
+                'Restaurant Type': 'Rest type',
+                'Cuisines': 'Cuisines'
+            }, inplace=True)
+            
+            # Convert Yes/No to 1/0
+            if 'Has Table booking' in df.columns:
+                df['Has Table booking'] = df['Has Table booking'].astype(str).str.lower().map({'yes': 1, 'no': 0}).fillna(0)
+            if 'Has Online delivery' in df.columns:
+                df['Has Online delivery'] = df['Has Online delivery'].astype(str).str.lower().map({'yes': 1, 'no': 0}).fillna(0)
+            
+            # Get all unique cities (NO LIMIT)
+            cities = []
+            if 'City' in df.columns:
+                cities = sorted(df['City'].dropna().unique().tolist())
+            
+            if not cities:
+                cities = ['Bangalore', 'Delhi', 'Mumbai']
+            
+            # Price ranges
+            price_ranges = {
+                '1': 'Budget (₹)',
+                '2': 'Moderate (₹₹)',
+                '3': 'Expensive (₹₹₹)',
+                '4': 'Very Expensive (₹₹₹₹)'
+            }
+            
+            # Get votes range
+            votes_range = {
+                'min': int(df['Votes'].min()) if 'Votes' in df.columns else 0,
+                'max': int(df['Votes'].max()) if 'Votes' in df.columns else 10000,
+                'avg': int(df['Votes'].mean()) if 'Votes' in df.columns else 150
+            }
+            
+            # Get a random sample
+            sample_row = df.sample(1).iloc[0]
+            
+            random_sample = {
+                'city': str(sample_row.get('City', cities[0] if cities else 'Bangalore')),
+                'has_table_booking': int(sample_row.get('Has Table booking', 1)) if pd.notna(sample_row.get('Has Table booking')) else 1,
+                'has_online_delivery': int(sample_row.get('Has Online delivery', 1)) if pd.notna(sample_row.get('Has Online delivery')) else 1,
+                'price_range': int(sample_row.get('Price range', 2)) if pd.notna(sample_row.get('Price range')) else 2,
+                'votes': int(sample_row.get('Votes', 150)) if pd.notna(sample_row.get('Votes')) else 150
+            }
+            
+            return {
+                'cities': cities,
+                'price_ranges': price_ranges,
+                'votes_range': votes_range,
+                'random_sample': random_sample
+            }
+            
+        except Exception as e:
+            import traceback
+            print(f"Error loading classification options: {e}")
+            traceback.print_exc()
+            return {
+                'cities': ['Bangalore', 'Delhi', 'Mumbai', 'Pune', 'Chennai'],
+                'price_ranges': {
+                    '1': 'Budget (₹)',
+                    '2': 'Moderate (₹₹)',
+                    '3': 'Expensive (₹₹₹)',
+                    '4': 'Very Expensive (₹₹₹₹)'
+                },
+                'votes_range': {'min': 0, 'max': 10000, 'avg': 150},
+                'random_sample': {
+                    'city': 'Bangalore',
+                    'has_table_booking': 1,
+                    'has_online_delivery': 1,
+                    'price_range': 2,
+                    'votes': 150
+                }
+            }
 
 if __name__ == '__main__':
     classifier = CuisineClassifier()

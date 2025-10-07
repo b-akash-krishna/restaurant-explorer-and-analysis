@@ -368,17 +368,17 @@ class RatingPredictor:
             
             locations = []
             if 'City' in df.columns:
-                locations = sorted(df['City'].dropna().unique().tolist())[:100]
+                locations = sorted(df['City'].dropna().unique().tolist())
             
             rest_types = []
             if 'Rest type' in df.columns:
-                rest_types = sorted(df['Rest type'].dropna().unique().tolist())[:50]
+                rest_types = sorted(df['Rest type'].dropna().unique().tolist())
             
             cuisines = []
             if 'Cuisines' in df.columns:
                 for cuisine_str in df['Cuisines'].dropna():
                     cuisines.extend([c.strip() for c in str(cuisine_str).split(',')])
-                cuisines = sorted(list(set(cuisines)))[:100]
+                cuisines = sorted(list(set(cuisines)))
             
             sample_row = df.sample(1).iloc[0]
             

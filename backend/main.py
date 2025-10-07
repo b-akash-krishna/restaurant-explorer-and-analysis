@@ -586,57 +586,79 @@ async def classify_cuisine(data: CuisineClassificationRequest, request: Request)
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# @app.get("/api/classify-cuisine/options")
+# async def get_classification_options():
+#     """Get options for cuisine classification form"""
+#     try:
+#         classifier = get_cuisine_classifier()
+        
+#         # Load data to get options
+#         import pandas as pd  # Ensure pandas is imported
+#         df = pd.read_csv('backend/data/Dataset.csv')
+        
+#         cities = sorted(df['City'].dropna().unique().tolist())[:50]
+        
+#         # Get price range info
+#         price_ranges = {
+#             '1': 'Budget (₹)',
+#             '2': 'Moderate (₹₹)',
+#             '3': 'Expensive (₹₹₹)',
+#             '4': 'Very Expensive (₹₹₹₹)'
+#         }
+        
+#         # Get a random sample safely
+#         if len(df) > 0:
+#             sample = df.sample(1).iloc[0]
+#             random_sample = {
+#                 'city': str(sample.get('City', cities[0] if cities else 'Bangalore')),
+#                 'has_table_booking': 1 if str(sample.get('Has Table booking', 'No')).lower() == 'yes' else 0,
+#                 'has_online_delivery': 1 if str(sample.get('Has Online delivery', 'Yes')).lower() == 'yes' else 0,
+#                 'price_range': int(sample.get('Price range', 2)) if pd.notna(sample.get('Price range')) else 2,
+#                 'votes': int(sample.get('Votes', 100)) if pd.notna(sample.get('Votes')) else 100
+#             }
+#         else:
+#             random_sample = {
+#                 'city': cities[0] if cities else 'Bangalore',
+#                 'has_table_booking': 1,
+#                 'has_online_delivery': 1,
+#                 'price_range': 2,
+#                 'votes': 100
+#             }
+        
+#         votes_series = pd.to_numeric(df['Votes'], errors='coerce').dropna()
+        
+#         return {
+#             "success": True,
+#             "cities": cities,
+#             "price_ranges": price_ranges,
+#             "random_sample": random_sample,
+#             "votes_range": {
+#                 "min": int(votes_series.min()) if len(votes_series) > 0 else 0,
+#                 "max": int(votes_series.max()) if len(votes_series) > 0 else 10000,
+#                 "avg": int(votes_series.mean()) if len(votes_series) > 0 else 100
+#             }
+#         }
+#     except Exception as e:
+#         logger.error(f"Error fetching classification options: {e}")
+#         import traceback
+#         traceback.print_exc()
+#         raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/api/classify-cuisine/options")
 async def get_classification_options():
     """Get options for cuisine classification form"""
     try:
         classifier = get_cuisine_classifier()
         
-        # Load data to get options
-        import pandas as pd  # Ensure pandas is imported
-        df = pd.read_csv('backend/data/Dataset.csv')
-        
-        cities = sorted(df['City'].dropna().unique().tolist())[:50]
-        
-        # Get price range info
-        price_ranges = {
-            '1': 'Budget (₹)',
-            '2': 'Moderate (₹₹)',
-            '3': 'Expensive (₹₹₹)',
-            '4': 'Very Expensive (₹₹₹₹)'
-        }
-        
-        # Get a random sample safely
-        if len(df) > 0:
-            sample = df.sample(1).iloc[0]
-            random_sample = {
-                'city': str(sample.get('City', cities[0] if cities else 'Bangalore')),
-                'has_table_booking': 1 if str(sample.get('Has Table booking', 'No')).lower() == 'yes' else 0,
-                'has_online_delivery': 1 if str(sample.get('Has Online delivery', 'Yes')).lower() == 'yes' else 0,
-                'price_range': int(sample.get('Price range', 2)) if pd.notna(sample.get('Price range')) else 2,
-                'votes': int(sample.get('Votes', 100)) if pd.notna(sample.get('Votes')) else 100
-            }
-        else:
-            random_sample = {
-                'city': cities[0] if cities else 'Bangalore',
-                'has_table_booking': 1,
-                'has_online_delivery': 1,
-                'price_range': 2,
-                'votes': 100
-            }
-        
-        votes_series = pd.to_numeric(df['Votes'], errors='coerce').dropna()
+        # Use the classifier's method instead of loading data directly
+        options = await asyncio.get_event_loop().run_in_executor(
+            executor,
+            classifier.get_classification_options
+        )
         
         return {
             "success": True,
-            "cities": cities,
-            "price_ranges": price_ranges,
-            "random_sample": random_sample,
-            "votes_range": {
-                "min": int(votes_series.min()) if len(votes_series) > 0 else 0,
-                "max": int(votes_series.max()) if len(votes_series) > 0 else 10000,
-                "avg": int(votes_series.mean()) if len(votes_series) > 0 else 100
-            }
+            **options
         }
     except Exception as e:
         logger.error(f"Error fetching classification options: {e}")
