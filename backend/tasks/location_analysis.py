@@ -181,7 +181,39 @@ class LocationAnalyzer:
                 'avg_rating_overall': 0,
                 'most_expensive_city': 'N/A'
             }
+        
+    def get_map_data_optimized(self):
+        """Get optimized location data with cuisine and cost for map visualization"""
+        if self.df is None:
+            self.load_data()
+            if self.df is None:
+                return []
 
+        locations = []
+        # Filter valid coordinates - return ALL restaurants with valid coordinates
+        valid_df = self.df.dropna(subset=['Latitude', 'Longitude']).copy()
+        
+        # Sort by rating for better visualization (high-rated restaurants appear on top)
+        valid_df = valid_df.sort_values('Aggregate rating', ascending=False)
+        
+        for idx, row in valid_df.iterrows():
+            try:
+                # Get first cuisine from comma-separated list
+                cuisine = str(row.get('Cuisines', 'Unknown')).split(',')[0].strip() if pd.notna(row.get('Cuisines')) else 'Unknown'
+                
+                locations.append({
+                    'lat': float(row['Latitude']),
+                    'lng': float(row['Longitude']),
+                    'name': str(row.get('Restaurant Name', 'Unknown')),
+                    'city': str(row.get('City', 'Unknown')),
+                    'rating': float(row.get('Aggregate rating', 0)),
+                    'cuisine': cuisine,
+                    'cost': float(row.get('Average Cost for two', 0)) if pd.notna(row.get('Average Cost for two')) else None
+                })
+            except (ValueError, TypeError):
+                continue
+
+        return locations
 
 # Example usage (for testing)
 if __name__ == "__main__":

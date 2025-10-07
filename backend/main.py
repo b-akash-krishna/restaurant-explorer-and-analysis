@@ -354,13 +354,14 @@ async def classify_cuisine_from_url(url: str, request: Request):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# Backend: Optimize map endpoint with cuisine/cost data and efficient querying
 @app.get("/api/location-analysis/map")
 async def get_map_data():
     try:
         analyzer = get_location_analyzer()
         locations = await asyncio.get_event_loop().run_in_executor(
             executor,
-            analyzer.get_map_data
+            analyzer.get_map_data_optimized
         )
         return {
             "success": True,
@@ -370,7 +371,6 @@ async def get_map_data():
     except Exception as e:
         logger.error(f"Map data error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-
 
 @app.get("/api/location-analysis/cities/{city}")
 async def get_city_localities(city: str):
